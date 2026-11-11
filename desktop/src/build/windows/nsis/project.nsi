@@ -7,6 +7,8 @@ Unicode true
 
 # Written by stamp_version.py nsis-defines (pep440 display + X.X.X.X file version).
 !include /nonfatal "version_defines.nsh"
+# A separate installer identity keeps the standard Octop installation intact.
+!define INFO_PRODUCTNAME "Octop Demo"
 !include "wails_tools.nsh"
 
 SetCompressor /SOLID lzma

@@ -153,7 +153,7 @@ func resolveDashboardURL() string {
 
 func resolveListen() (string, int) {
 	host := "127.0.0.1"
-	port := 8088
+	port := 18088
 	if data, err := os.ReadFile(filepath.Join(octopHome(), "config.json")); err == nil {
 		var raw struct {
 			BindHost string `json:"bind_host"`
