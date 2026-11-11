@@ -26,11 +26,11 @@ type Settings struct {
 
 func defaultSettings() Settings {
 	return Settings{
-		Locale:         LocaleEN,
+		Locale:         LocaleZH,
 		Autostart:      false,
 		MinimizeToTray: true,
 		PreventSleep:   false,
-		Port:           8088,
+		Port:           18088,
 	}
 }
 
@@ -42,7 +42,7 @@ func octopHome() string {
 	if err != nil {
 		return ".octop"
 	}
-	return filepath.Join(home, ".octop")
+	return filepath.Join(home, ".octop-demo")
 }
 
 func portableDir() string {
@@ -73,7 +73,7 @@ func loadSettings() Settings {
 		s.PreventSleep = legacy.PreventSleepMac
 	}
 	if s.Port == 0 {
-		s.Port = 8088
+		s.Port = 18088
 	}
 	if s.Locale != LocaleZH {
 		s.Locale = LocaleEN
@@ -91,7 +91,7 @@ func (st *settingsStore) save(next Settings) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if next.Port == 0 {
-		next.Port = 8088
+		next.Port = 18088
 	}
 	if err := os.MkdirAll(octopHome(), 0o755); err != nil {
 		return err

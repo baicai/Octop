@@ -107,7 +107,7 @@ jobs:
               {"plat": "windows-arm64", "arch": "arm64", "os": "windows-11-arm"},
           ]
           if os.environ["EVENT_NAME"] == "pull_request":
-              sel = "darwin-arm64,darwin-amd64,windows-amd64,windows-arm64"
+              sel = "windows-amd64"
           else:
               sel = os.environ.get("PLATFORMS", "all").lower().replace(" ", "")
           known = {row["plat"] for row in all_plats}
@@ -301,10 +301,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Rename demo installer on PR builds
+        if: github.event_name == 'pull_request' && matrix.plat == 'windows-amd64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv "desktop/src/bin/Octop-desktop-${{ matrix.plat }}-${{ env.OCTOP_VERSION }}.exe" \
+             "desktop/src/bin/Octop-Demo-${{ matrix.plat }}-${{ env.OCTOP_VERSION }}.exe"
+
       - name: Upload bundled desktop package
         uses: actions/upload-artifact@v7
         with:
-          path: desktop/src/bin/Octop-desktop-${{ matrix.plat }}-${{ env.OCTOP_VERSION }}.*
+          path: |
+            desktop/src/bin/Octop-Demo-${{ matrix.plat }}-${{ env.OCTOP_VERSION }}.*
+            desktop/src/bin/Octop-desktop-${{ matrix.plat }}-${{ env.OCTOP_VERSION }}.*
           archive: false
           if-no-files-found: error
           retention-days: 14
