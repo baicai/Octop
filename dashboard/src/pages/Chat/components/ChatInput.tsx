@@ -285,7 +285,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         maohaoTranscribingRef.current = true;
         try {
           const raw = atob(data.wavBase64);
-          const wav = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+          const wav = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i += 1) wav[i] = raw.charCodeAt(i);
           const response = await voiceApi.transcribe(
             new Blob([wav.buffer as ArrayBuffer], { type: "audio/wav" }),
             speechLocaleFromUi(i18n.language),
