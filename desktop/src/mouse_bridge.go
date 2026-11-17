@@ -193,8 +193,7 @@ func (m *maohaoMouseBridge) stop() {
     m.mu.Unlock()
     if cmd==nil || cmd.Process==nil { return }
     if stdin!=nil {
-        _,_ = io.WriteString(stdin,"stop
-")
+        _,_ = io.WriteString(stdin,"stop\n")
         _ = stdin.Close()
     }
     go func(){time.Sleep(2*time.Second);_ = cmd.Process.Kill()}()
