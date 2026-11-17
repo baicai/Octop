@@ -83,7 +83,7 @@ func TestResolveDashboardURLDefaultsWhenConfigMissing(t *testing.T) {
 	t.Setenv("OCTOP_HOME", t.TempDir())
 	t.Setenv("OCTOP_BIND_HOST", "")
 	t.Setenv("OCTOP_PORT", "")
-	if got := resolveDashboardURL(); got != "http://127.0.0.1:8088/" {
+	if got := resolveDashboardURL(); got != "http://127.0.0.1:18088/" {
 		t.Fatalf("dashboard URL = %q", got)
 	}
 }
