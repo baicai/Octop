@@ -219,7 +219,8 @@ func listenProbe(host string, port int) (bool, error) {
 		_ = ln.Close()
 		return false, nil
 	}
-	if errors.Is(err, syscall.EADDRINUSE) {
+	// Windows reports WSAEADDRINUSE (10048), not the Unix EADDRINUSE errno.
+	if errors.Is(err, syscall.EADDRINUSE) || errors.Is(err, syscall.Errno(10048)) {
 		return true, nil
 	}
 	return false, err
