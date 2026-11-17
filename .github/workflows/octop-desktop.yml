@@ -283,6 +283,17 @@ jobs:
           }
           Add-Content -Path $env:GITHUB_PATH -Value $nsisDir
 
+      - name: Prepare pinned Maohao mouse SDK (Windows evaluation)
+        if: github.event_name == 'pull_request' && matrix.plat == 'windows-amd64'
+        shell: pwsh
+        run: |
+          ./desktop/scripts/prepare-maohao-mouse-sdk.ps1 -OutputDirectory "desktop/src/build/windows/nsis/umouse-sdk"
+
+      - name: Test mouse bridge and desktop integration
+        if: github.event_name == 'pull_request' && matrix.plat == 'windows-amd64'
+        working-directory: desktop/src
+        run: go test ./...
+
       - name: Package desktop app with bundled portable runtime
         working-directory: desktop/src
         run: >-

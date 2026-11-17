@@ -76,6 +76,13 @@ Section
 
     !insertmacro wails.files
 
+    ; Windows evaluation only: packaged vendor DLL and isolated SDK helper.
+    !if /FileExists "umouse-sdk\\umouse-bridge.exe"
+        SetOutPath "$INSTDIR\\umouse-sdk"
+        File /r "umouse-sdk\\*"
+        SetOutPath "$INSTDIR"
+    !endif
+
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortcut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 

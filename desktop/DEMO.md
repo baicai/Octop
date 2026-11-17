@@ -32,3 +32,12 @@ See `desktop/README.md` and `.github/workflows/octop-desktop.yml` for tool versi
 Explicit `OCTOP_HOME` and `OCTOP_DESKTOP_URL` environment variables still override defaults for developer use. The normal demo uses neither. The data directory should not be deleted automatically on uninstall: it may contain user chats and credentials.
 
 This is a real functional demo **baseline**, not a completely redesigned DSH interface. A CI build alone is not proof of real Windows installation, live AI provider connectivity, or mouse hardware compatibility; those require separate Windows acceptance.
+
+
+## Maohao mouse SDK Windows evaluation
+
+This test client uses the **customer supplied uMouse SDK v0.4.20**, pinned to `baicai/mouse-sdk` commit `b2a7355`. The isolated native helper and signed-off Windows build procedure are reused from `baicai/deepseek-harness` DSH-Maohao. Only the SDK version and binary ABI are verified in CI; **real hardware must still be tested with the user's Maohao mouse**.
+
+With a configured Octop STT provider: AI key opens the existing Octop chat, speech/AI key hold captures **mouse SDK PCM** (not the PC mic), release transcodes to WAV, existing authenticated `/voice/stt` transcribes, and the text is automatically sent to the currently selected Agent. Multi-user and Agent management remain unchanged.
+
+**Limitations:** Existing Octop STT adapters require a configured provider (currently no bundled offline SenseVoice). The native bridge runs while Octop is open or minimized, not after full quit. Do not publicly redistribute vendor SDK binaries without confirming vendor commercial permission; this is an evaluation build for the customer.

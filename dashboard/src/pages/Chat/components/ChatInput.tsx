@@ -30,6 +30,8 @@ import ChatInputPreviewBar from "./ChatInputPreviewBar";
 import ChatInputActionsRow from "./ChatInputActionsRow";
 import ChatQueuedMessages from "./ChatQueuedMessages";
 import { useVoiceInput } from "../../../hooks/useVoiceInput";
+import { voiceApi } from "../../../api/modules/voice";
+import { speechLocaleFromUi } from "../../../utils/localePrefs";
 import { useChatAttachments } from "../hooks/useChatAttachments";
 import { onSteerRestore } from "../hooks/chatStore";
 import { useSlashMentionInput } from "../hooks/useSlashMentionInput";
@@ -272,6 +274,44 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       onInterim: applyVoiceText,
       onText: applyVoiceText,
     });
+    // Audio is delivered by the native Wails shell, not by the browser mic.
+    // Only a physical mouse hold generates this event in the SDK bridge.
+    const maohaoTranscribingRef = useRef(false);
+    useEffect(() => {
+      const onMaohaoAudio = async (event: Event) => {
+        const data = (event as CustomEvent<{ wavBase64?: string }>).detail;
+        if (!data?.wavBase64 || data.wavBase64.length > 4_500_000 ||
+            maohaoTranscribingRef.current) return;
+        maohaoTranscribingRef.current = true;
+        try {
+          const raw = atob(data.wavBase64);
+          const wav = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+          const response = await voiceApi.transcribe(
+            new Blob([wav.buffer as ArrayBuffer], { type: "audio/wav" }),
+            speechLocaleFromUi(i18n.language),
+          );
+          const transcript = response.text?.trim() ?? "";
+          if (!transcript) {
+            antMessage.warning("未识别到语音，请重新按住鼠标语音键。");
+          } else if (disabled) {
+            antMessage.warning("当前 Agent 尚未就绪。");
+          } else if (isStreaming || holdSend) {
+            if (onQueue?.({ text: transcript }) !== "ok") {
+              antMessage.warning("当前对话繁忙，请稍后重试。");
+            }
+          } else {
+            onSend(transcript);
+          }
+        } catch {
+          antMessage.error("贸号鼠标语音识别失败，请先配置可用的 STT 服务。");
+        } finally {
+          maohaoTranscribingRef.current = false;
+        }
+      };
+      window.addEventListener("octop:maohao-audio", onMaohaoAudio);
+      return () => window.removeEventListener("octop:maohao-audio", onMaohaoAudio);
+    }, [antMessage, disabled, holdSend, i18n.language, isStreaming, onQueue, onSend]);
+
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const {
       attachments,
