@@ -15,7 +15,7 @@ import(
 var (u32=syscall.NewLazyDLL("user32.dll");foregroundProc=u32.NewProc("GetForegroundWindow");titleProc=u32.NewProc("GetWindowTextW");inputProc=u32.NewProc("SendInput");shellProc=syscall.NewLazyDLL("shell32.dll").NewProc("ShellExecuteW"))
 func maohaoRegisterLoginStart()error{
 exe,err:=os.Executable();if err!=nil{return err}
-k,_,err:=registry.CreateKey(registry.CURRENT_USER,`SoftwareMicrosoftWindowsCurrentVersionRun`,registry.SET_VALUE)
+k,_,err:=registry.CreateKey(registry.CURRENT_USER,`Software\Microsoft\Windows\CurrentVersion\Run`,registry.SET_VALUE)
 if err!=nil{return err};defer k.Close()
 return k.SetStringValue("OctopDemoMouseAgent",fmt.Sprintf("%q --maohao-agent",exe))
 }
