@@ -54,6 +54,8 @@ defer os.Remove(temp)
 if err=f.Chmod(0600);err!=nil{f.Close();return "",err}
 if _,err=f.WriteString(secret);err!=nil{f.Close();return "",err}
 if err=f.Close();err!=nil{return "",err}
+// The listener has already been claimed, so no other agent can own this file.
+_ = os.Remove(maohaoTokenPath())
 if err=os.Rename(temp,maohaoTokenPath());err!=nil{return "",err}
 return secret,nil
 }
