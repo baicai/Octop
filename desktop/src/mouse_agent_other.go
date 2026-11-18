@@ -1,4 +1,5 @@
 //go:build !windows
+
 package main
 import "errors"
 func maohaoRegisterLoginStart()error{return nil}
