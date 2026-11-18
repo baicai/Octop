@@ -90,6 +90,11 @@ Section
     !insertmacro wails.associateCustomProtocols
 
     !insertmacro wails.writeUninstaller
+
+    ; Per-user background SDK listener starts without opening the main GUI.
+    ; Portable Python + verified model files are prepared on first voice use.
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "OctopDemoMouseAgent" '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent'
+    Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent'
 SectionEnd
 
 Section "uninstall"

@@ -55,3 +55,5 @@ Resident agent authentication uses a random **per-process-session** loopback tok
 Uninstall sends an authenticated local shutdown request to the agent before deleting the installed application, then removes the HKCU Run entry. It does not kill other programs by executable name.
 
 The foreground Octop chat receives locally recognized text through the `octop:maohao-transcript` event and submits it to the selected Agent; there is no implicit remote speech upload. The old `/voice/stt` path remains available for Octop's own browser microphone action.
+
+The NSIS installer registers the per-user mouse agent and starts it immediately after installation; opening Octop's UI is not required for hardware event detection. If the bundled Python runtime is not yet extracted, the first background ASR request extracts it from the installer payload without requiring a separate Python installation. Offline model files are downloaded only on first voice use and SHA-256 verified; later runs reuse the cache.

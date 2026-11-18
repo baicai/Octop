@@ -243,7 +243,7 @@ assemble_one() {
   if [[ "$plat" == "windows-amd64" ]]; then
     cp "${REPO_ROOT}/desktop/native/sensevoice_worker.py" "${staging}/sensevoice_worker.py"
     echo "[package] ${plat}: add pinned sherpa-onnx inference binding" >&2
-    uv pip install "${common_args[@]}" --no-deps "sherpa-onnx==2.0.1"
+    uv pip install "${common_args[@]}" "sherpa-onnx==2.0.1"
     local sv_python
     sv_python="$(runtime_python "${staging}/runtime")"
     OCTOP_SENSEVOICE_PACKAGES="${staging}/packages" "$sv_python" -c 'import os,site;site.addsitedir(os.environ["OCTOP_SENSEVOICE_PACKAGES"]);import sherpa_onnx,numpy;print("PASS: sherpa-onnx native Windows binding")'

@@ -140,6 +140,14 @@ func (w *maohaoOfflineWorker) start(root string)error{
  portable:=portableDir()
  py:=pythonExe(portable)
  script:=filepath.Join(portable,"sensevoice_worker.py")
+ if _,err:=os.Stat(py);err!=nil {
+  // Installation may launch this headless agent before any Octop window
+  // has been opened. Extract the already bundled Python runtime here.
+  // Never ask the user to install Python manually.
+  if err=ensurePortable(LocaleZH,func(string){});err!=nil{
+    return fmt.Errorf("bundled offline runtime extraction failed: %w",err)
+  }
+ }
  if _,err:=os.Stat(py);err!=nil{return fmt.Errorf("portable Python not installed")}
  if _,err:=os.Stat(script);err!=nil{return fmt.Errorf("SenseVoice worker not packaged")}
  cmd:=exec.Command(py,script,root)
