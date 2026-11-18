@@ -237,6 +237,18 @@ assemble_one() {
   cp "${TEMPLATES}/start.bat" "${staging}/start.bat"
   cp "${TEMPLATES}/launch.py" "${staging}/launch.py"
   cp "${TEMPLATES}/README.txt" "${staging}/README.txt"
+  # Evaluation-only offline SenseVoice support for the Windows Maohao agent.
+  # The model weights are NOT part of the installer: SHA-256-verified,
+  # resumable-on-next-run cache preparation happens in the resident agent.
+  if [[ "$plat" == "windows-amd64" ]]; then
+    cp "${REPO_ROOT}/desktop/native/sensevoice_worker.py" "${staging}/sensevoice_worker.py"
+    echo "[package] ${plat}: add pinned sherpa-onnx inference binding" >&2
+    uv pip install "${common_args[@]}" --no-deps "sherpa-onnx==2.0.1"
+    local sv_python
+    sv_python="$(runtime_python "${staging}/runtime")"
+    OCTOP_SENSEVOICE_PACKAGES="${staging}/packages" "$sv_python" -c 'import os,site;site.addsitedir(os.environ["OCTOP_SENSEVOICE_PACKAGES"]);import sherpa_onnx,numpy;print("PASS: sherpa-onnx native Windows binding")'
+    "$sv_python" -m py_compile "${staging}/sensevoice_worker.py"
+  fi
   chmod +x "${staging}/start.sh"
 
   # Windows: pywin32 DLLs must be findable next to python.exe (or on PATH).
