@@ -35,26 +35,35 @@ device string
 foreground uintptr
 lastWake time.Time
 }
-func maohaoToken() (string,error) {
+func maohaoTokenPath()string{return filepath.Join(octopHome(),"maohao-agent.token")}
+func maohaoToken()(string,error){
+raw,err:=os.ReadFile(maohaoTokenPath());if err!=nil{return "",err}
+secret:=strings.TrimSpace(string(raw))
+if len(secret)!=64{return "",errors.New("invalid Maohao session token")}
+if _,err:=hex.DecodeString(secret);err!=nil{return "",err}
+return secret,nil
+}
+func createMaohaoSessionToken()(string,error){
 if err:=os.MkdirAll(octopHome(),0700);err!=nil{return "",err}
-p:=filepath.Join(octopHome(),"maohao-agent.token")
-b:=make([]byte,32)
-if _,err:=rand.Read(b);err!=nil{return "",err}
-f,err:=os.OpenFile(p,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600)
-if err==nil {_,err=f.WriteString(hex.EncodeToString(b));_ = f.Close();if err!=nil{return "",err}
-}else if !errors.Is(err,os.ErrExist){return "",err}
-existing,err:=os.ReadFile(p)
-if err!=nil{return "",err}
-s:=strings.TrimSpace(string(existing))
-if len(s)!=64{return "",errors.New("invalid agent token")}
-if _,err=hex.DecodeString(s);err!=nil{return "",err}
-return s,nil
+b:=make([]byte,32);if _,err:=rand.Read(b);err!=nil{return "",err}
+secret:=hex.EncodeToString(b)
+f,err:=os.CreateTemp(octopHome(),"maohao-session-*");if err!=nil{return "",err}
+temp:=f.Name()
+defer os.Remove(temp)
+if err=f.Chmod(0600);err!=nil{f.Close();return "",err}
+if _,err=f.WriteString(secret);err!=nil{f.Close();return "",err}
+if err=f.Close();err!=nil{return "",err}
+if err=os.Rename(temp,maohaoTokenPath());err!=nil{return "",err}
+return secret,nil
 }
 func runMaohaoAgent()error{
 if runtime.GOOS!="windows"{return nil}
-secret,err:=maohaoToken();if err!=nil{return err}
 ln,err:=net.Listen("tcp",maohaoAddr);if err!=nil{return err}
 defer ln.Close()
+secret,err:=createMaohaoSessionToken();if err!=nil{return err}
+// Session credentials are regenerated on daemon startup; they are not a
+// permanent device identifier, user account, or remote tracking token.
+defer os.Remove(maohaoTokenPath())
 a:=&maohaoAgent{peers:map[*maohaoPeer]struct{}{}}
 m:=newMaohaoMouseBridge(nil);m.agent=a;a.bridge=m
 go m.start();defer m.stop()
