@@ -284,13 +284,13 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value $nsisDir
 
       - name: Prepare pinned Maohao mouse SDK (Windows evaluation)
-        if: github.event_name == 'pull_request' && matrix.plat == 'windows-amd64'
+        if: matrix.plat == 'windows-amd64' && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref_name == 'demo/octop-windows-20261111'))
         shell: pwsh
         run: |
           ./desktop/scripts/prepare-maohao-mouse-sdk.ps1 -OutputDirectory "desktop/src/build/windows/nsis/umouse-sdk"
 
       - name: Test mouse bridge and desktop integration
-        if: github.event_name == 'pull_request' && matrix.plat == 'windows-amd64'
+        if: matrix.plat == 'windows-amd64' && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref_name == 'demo/octop-windows-20261111'))
         working-directory: desktop/src
         run: go test ./...
 
@@ -312,8 +312,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Rename demo installer on PR builds
-        if: github.event_name == 'pull_request' && matrix.plat == 'windows-amd64'
+      - name: Rename demo installer on evaluation builds
+        if: matrix.plat == 'windows-amd64' && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref_name == 'demo/octop-windows-20261111'))
         shell: bash
         run: |
           set -euo pipefail
@@ -339,6 +339,7 @@ jobs:
     if: >-
       always() &&
       !cancelled() &&
+      github.ref_name != 'demo/octop-windows-20261111' &&
       (needs.package.result == 'success' || needs.package.result == 'skipped') &&
       (
         (github.event_name == 'workflow_dispatch' &&
