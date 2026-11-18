@@ -31,6 +31,7 @@ type maohaoAgent struct {
 mu sync.Mutex
 peers map[*maohaoPeer]struct{}
 bridge *maohaoMouseBridge
+listener net.Listener
 device string
 foreground uintptr
 lastWake time.Time
@@ -65,17 +66,33 @@ secret,err:=createMaohaoSessionToken();if err!=nil{return err}
 // permanent device identifier, user account, or remote tracking token.
 defer os.Remove(maohaoTokenPath())
 a:=&maohaoAgent{peers:map[*maohaoPeer]struct{}{}}
-m:=newMaohaoMouseBridge(nil);m.agent=a;a.bridge=m
-go m.start();defer m.stop()
-for {c,err:=ln.Accept();if err!=nil{return err};go a.handle(c,secret)}
+m:=newMaohaoMouseBridge(nil);m.agent=a;a.bridge=m;a.listener=ln
+finished:=make(chan struct{})
+go func(){m.start();close(finished)}()
+defer func(){
+  m.stop()
+  select{case <-finished:case <-time.After(3*time.Second):}
+}()
+for {c,err:=ln.Accept();if err!=nil{
+if errors.Is(err,net.ErrClosed){return nil}
+return err
+};go a.handle(c,secret)}
 }
 func (a *maohaoAgent)handle(conn net.Conn,secret string){
 defer conn.Close();_=conn.SetReadDeadline(time.Now().Add(4*time.Second))
 r:=bufio.NewReaderSize(conn,512)
-line,err:=r.ReadString('
-');if err!=nil||len(line)>512{return}
-var hello struct{Token string `json:"token"`}
+line,err:=r.ReadString('\n');if err!=nil||len(line)>512{return}
+var hello struct {
+ Token string `json:"token"`
+ Action string `json:"action"`
+}
 if json.Unmarshal([]byte(line),&hello)!=nil||hello.Token!=secret{return}
+if hello.Action=="shutdown" {
+  _,_=io.WriteString(conn,"ok\n")
+  _=a.listener.Close()
+  return
+}
+if hello.Action!="" {return}
 p:=&maohaoPeer{conn:conn}
 a.mu.Lock();a.peers[p]=struct{}{};a.mu.Unlock()
 defer func(){a.mu.Lock();delete(a.peers,p);a.mu.Unlock()}()
@@ -145,6 +162,13 @@ if resp.StatusCode!=200{return "",fmt.Errorf("STT status %d",resp.StatusCode)}
 var out struct{Text string `json:"text"`}
 if err=json.NewDecoder(io.LimitReader(resp.Body,8192)).Decode(&out);err!=nil{return "",err}
 return strings.TrimSpace(out.Text),nil
+}
+func shutdownMaohaoAgent()error{
+ secret,err:=maohaoToken();if err!=nil{return err}
+ conn,err:=net.DialTimeout("tcp",maohaoAddr,2*time.Second);if err!=nil{return err}
+ defer conn.Close()
+ _=conn.SetDeadline(time.Now().Add(2*time.Second))
+ return json.NewEncoder(conn).Encode(map[string]string{"token":secret,"action":"shutdown"})
 }
 func connectMaohaoAgent(a *App){
 if runtime.GOOS!="windows"{return}

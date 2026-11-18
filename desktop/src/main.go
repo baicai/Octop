@@ -329,6 +329,7 @@ func (a *App) requestQuit() {
 }
 
 func main() {
+	if runtime.GOOS=="windows" && len(os.Args)>1 && os.Args[1]=="--maohao-agent-stop" { _ = shutdownMaohaoAgent();return }
 	if runtime.GOOS=="windows" && len(os.Args)>1 && os.Args[1]=="--maohao-agent" { if err:=runMaohaoAgent();err!=nil {log.Printf("Maohao agent: %v",err)};return }
 	store := &settingsStore{cur: loadSettings()}
 	api := &App{

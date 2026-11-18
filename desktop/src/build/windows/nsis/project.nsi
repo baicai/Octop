@@ -93,6 +93,10 @@ Section
 SectionEnd
 
 Section "uninstall"
+    ; Stop only the authenticated Octop Demo agent, not other Octop installations.
+    IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 skipMouseStop
+    ExecWait '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent-stop'
+    skipMouseStop:
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "OctopDemoMouseAgent"
     !insertmacro wails.setShellContext
 
