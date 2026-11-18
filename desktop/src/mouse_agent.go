@@ -2,7 +2,6 @@ package main
 import (
 "bufio"
 "crypto/rand"
-"encoding/base64"
 "encoding/hex"
 "encoding/json"
 "errors"
@@ -32,6 +31,7 @@ mu sync.Mutex
 peers map[*maohaoPeer]struct{}
 bridge *maohaoMouseBridge
 listener net.Listener
+worker *maohaoOfflineWorker
 device string
 foreground uintptr
 lastWake time.Time
@@ -67,11 +67,12 @@ secret,err:=createMaohaoSessionToken();if err!=nil{return err}
 // Session credentials are regenerated on daemon startup; they are not a
 // permanent device identifier, user account, or remote tracking token.
 defer os.Remove(maohaoTokenPath())
-a:=&maohaoAgent{peers:map[*maohaoPeer]struct{}{}}
+a:=&maohaoAgent{peers:map[*maohaoPeer]struct{}{},worker:&maohaoOfflineWorker{}}
 m:=newMaohaoMouseBridge(nil);m.agent=a;a.bridge=m;a.listener=ln
 finished:=make(chan struct{})
 go func(){m.start();close(finished)}()
 defer func(){
+  a.worker.stop()
   m.stop()
   select{case <-finished:case <-time.After(3*time.Second):}
 }()
@@ -128,11 +129,10 @@ a.mu.Lock();foreground,wasDevice:=a.foreground,a.device
 active:=len(a.peers)>0
 a.device="";a.foreground=0;a.mu.Unlock()
 if wasDevice!=device{return}
-if foreground!=0&&!maohaoIsOctopForeground(foreground){
-go a.backgroundAction(wav,foreground);return
-}
-if active {a.broadcast("octop:maohao-audio",map[string]string{"wavBase64":base64.StdEncoding.EncodeToString(wav)})
-}else{go a.backgroundAction(wav,foreground)}
+_ = active
+// A single offline STT path is used for both system commands and Octop
+// conversation text, even if the Octop window is not open.
+go a.backgroundAction(wav,foreground)
 }
 func classifyMaohaoSpeech(s string)string{
 s=strings.Trim(strings.TrimSpace(s),"，,。！! ")
@@ -141,8 +141,23 @@ if s==""{return "empty"}
 return "dictate"
 }
 func (a *maohaoAgent)backgroundAction(wav []byte,window uintptr){
-msg,err:=maohaoLocalSTT(wav)
-if err!=nil {a.broadcast("octop:maohao-status",map[string]string{"phase":"local-stt-unavailable"});return}
+var msg string
+var err error
+if os.Getenv("OCTOP_MAOHAO_LOCAL_STT_URL")!="" {
+  msg,err=maohaoLocalSTT(wav) // optional explicitly configured local endpoint
+} else {
+  msg,err=a.worker.transcribe(wav,a.broadcast)
+}
+if err!=nil {
+  a.broadcast("octop:maohao-status",map[string]string{"phase":"local-stt-unavailable"})
+  log.Printf("Maohao local ASR unavailable: %T",err)
+  return
+}
+a.broadcast("octop:maohao-status",map[string]string{"phase":"ready"})
+if window!=0&&maohaoIsOctopForeground(window) {
+  a.broadcast("octop:maohao-transcript",map[string]string{"text":msg})
+  return
+}
 switch classifyMaohaoSpeech(msg){
 case "open-wechat":_ = maohaoOpenWeChat()
 case "dictate":
