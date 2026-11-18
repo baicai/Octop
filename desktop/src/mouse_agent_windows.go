@@ -10,9 +10,10 @@ import(
 "syscall"
 "unicode/utf16"
 "unsafe"
+"time"
 "golang.org/x/sys/windows/registry"
 )
-var (u32=syscall.NewLazyDLL("user32.dll");foregroundProc=u32.NewProc("GetForegroundWindow");titleProc=u32.NewProc("GetWindowTextW");inputProc=u32.NewProc("SendInput");shellProc=syscall.NewLazyDLL("shell32.dll").NewProc("ShellExecuteW"))
+var (u32=syscall.NewLazyDLL("user32.dll");foregroundProc=u32.NewProc("GetForegroundWindow");titleProc=u32.NewProc("GetWindowTextW");inputProc=u32.NewProc("SendInput");shellProc=syscall.NewLazyDLL("shell32.dll").NewProc("ShellExecuteW");findWindowProc=u32.NewProc("FindWindowW");showWindowProc=u32.NewProc("ShowWindow");setForegroundProc=u32.NewProc("SetForegroundWindow"))
 func maohaoRegisterLoginStart()error{
 exe,err:=os.Executable();if err!=nil{return err}
 k,_,err:=registry.CreateKey(registry.CURRENT_USER,`Software\Microsoft\Windows\CurrentVersion\Run`,registry.SET_VALUE)
@@ -35,20 +36,38 @@ if n!=1{return fmt.Errorf("SendInput failed: %v",err)}
 }}
 return nil
 }
+func focusRunningWeChat()bool{
+for _,name:=range []string{"WeChatMainWndForPC","WeixinMainWndForPC"}{
+  class,_:=syscall.UTF16PtrFromString(name)
+  hwnd,_,_:=findWindowProc.Call(uintptr(unsafe.Pointer(class)),0)
+  if hwnd==0{continue}
+  showWindowProc.Call(hwnd,9) // SW_RESTORE
+  ok,_,_:=setForegroundProc.Call(hwnd)
+  if ok!=0{return true}
+}
+return false
+}
+func tryFocusWeChat() {
+for n:=0;n<20;n++{
+if focusRunningWeChat(){return}
+time.Sleep(150*time.Millisecond)
+}
+}
 func maohaoOpenWeChat()error{
+if focusRunningWeChat(){return nil}
 for _,root:=range []string{os.Getenv("LOCALAPPDATA"),os.Getenv("ProgramFiles"),os.Getenv("ProgramFiles(x86)")}{
 if root==""{continue}
 for _,p:=range []string{filepath.Join(root,"Tencent","WeChat","WeChat.exe"),filepath.Join(root,"Tencent","Weixin","Weixin.exe"),filepath.Join(root,"Programs","Tencent","Weixin","Weixin.exe")} {
 if fi,err:=os.Stat(p);err==nil&&!fi.IsDir(){
 cmd:=exec.Command(p);prepareMaohaoCommand(cmd)
-if cmd.Start()==nil{go func(){_=cmd.Wait()}();return nil}
+if cmd.Start()==nil{go func(){_=cmd.Wait()}();tryFocusWeChat();return nil}
 }
 }}
 verb,_:=syscall.UTF16PtrFromString("open")
 for _,exe:=range []string{"Weixin.exe","WeChat.exe"}{
 name,_:=syscall.UTF16PtrFromString(exe)
 h,_,_:=shellProc.Call(0,uintptr(unsafe.Pointer(verb)),uintptr(unsafe.Pointer(name)),0,0,1)
-if h>32{return nil}
+if h>32{tryFocusWeChat();return nil}
 }
 return errors.New("WeChat not installed in supported paths")
 }
