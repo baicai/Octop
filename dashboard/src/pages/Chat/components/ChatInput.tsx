@@ -276,6 +276,32 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     });
     // Audio is delivered by the native Wails shell, not by the browser mic.
     // Only a physical mouse hold generates this event in the SDK bridge.
+    // Visible feedback for physical mouse capture, independent of the
+    // ordinary browser microphone button and the Octop chat thread.
+    useEffect(() => {
+      const onMouseStatus = (event: Event) => {
+        const phase = (event as CustomEvent<{ phase?: string }>).detail?.phase;
+        const key = "maohao-physical-recording";
+        if (phase === "recording") {
+          antMessage.open({ key, type: "loading", duration: 0,
+            content: "贸号鼠标正在收音，松开按键后识别" });
+        } else if (phase === "transcribing") {
+          antMessage.open({ key, type: "loading", duration: 0,
+            content: "贸号鼠标语音识别中…" });
+        } else if (phase === "ready" || phase === "disconnected" ||
+                   phase === "device-disconnected") {
+          antMessage.destroy(key);
+        } else if (phase === "local-stt-unavailable") {
+          antMessage.destroy(key);
+          antMessage.warning("后台语音识别未就绪，需配置本地识别服务。");
+        }
+      };
+      window.addEventListener("octop:maohao-status", onMouseStatus);
+      return () => {
+        window.removeEventListener("octop:maohao-status", onMouseStatus);
+        antMessage.destroy("maohao-physical-recording");
+      };
+    }, [antMessage]);
     const maohaoTranscribingRef = useRef(false);
     useEffect(() => {
       const onMaohaoAudio = async (event: Event) => {
