@@ -285,6 +285,12 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         if (phase === "recording") {
           antMessage.open({ key, type: "loading", duration: 0,
             content: "贸号鼠标正在收音，松开按键后识别" });
+        } else if (phase === "model-downloading") {
+          antMessage.open({ key, type: "loading", duration: 0,
+            content: "首次准备离线语音模型中，请保持网络连接…" });
+        } else if (phase === "model-loading") {
+          antMessage.open({ key, type: "loading", duration: 0,
+            content: "正在加载本地 SenseVoice 语音模型…" });
         } else if (phase === "transcribing") {
           antMessage.open({ key, type: "loading", duration: 0,
             content: "贸号鼠标语音识别中…" });
@@ -302,6 +308,29 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         antMessage.destroy("maohao-physical-recording");
       };
     }, [antMessage]);
+    // Local on-device transcript: no authenticated cloud STT account is needed.
+    // This event is delivered by the resident hardware agent, not web content.
+    useEffect(() => {
+      const onMaohaoTranscript = (event: Event) => {
+        const spoken = (event as CustomEvent<{ text?: string }>).detail?.text?.trim() ?? "";
+        if (!spoken) {
+          antMessage.info("未识别到有效语音，请重试。");
+          return;
+        }
+        antMessage.destroy("maohao-physical-recording");
+        if (disabled) {
+          antMessage.warning("当前 Agent 暂时无法接收消息。");
+        } else if (isStreaming || holdSend) {
+          if (onQueue?.({ text: spoken }) !== "ok") {
+            antMessage.warning("当前对话繁忙，无法排队发送语音消息。");
+          }
+        } else {
+          onSend(spoken);
+        }
+      };
+      window.addEventListener("octop:maohao-transcript", onMaohaoTranscript);
+      return () => window.removeEventListener("octop:maohao-transcript", onMaohaoTranscript);
+    }, [antMessage, disabled, holdSend, isStreaming, onQueue, onSend]);
     const maohaoTranscribingRef = useRef(false);
     useEffect(() => {
       const onMaohaoAudio = async (event: Event) => {

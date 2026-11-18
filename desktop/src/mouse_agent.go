@@ -204,7 +204,7 @@ for s.Scan(){
 var pkt maohaoPacket
 if json.Unmarshal(s.Bytes(),&pkt)!=nil{continue}
 if pkt.Event=="octop:maohao-wake" {a.showWindow();continue}
-if (pkt.Event=="octop:maohao-audio"||pkt.Event=="octop:maohao-status")&&a.window!=nil{
+if (pkt.Event=="octop:maohao-transcript"||pkt.Event=="octop:maohao-audio"||pkt.Event=="octop:maohao-status")&&a.window!=nil{
 name,_:=json.Marshal(pkt.Event)
 a.window.ExecJS("window.dispatchEvent(new CustomEvent("+string(name)+",{detail:"+string(pkt.Detail)+"}));")
 }
