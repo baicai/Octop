@@ -30,7 +30,6 @@ type App struct {
 	store          *settingsStore
 	sleep          *sleepGuard
 	cmd            *exec.Cmd
-	maohao         *maohaoMouseBridge
 	mu             sync.Mutex
 	quitting       bool
 
@@ -46,7 +45,6 @@ func (a *App) ServiceName() string { return "desktop" }
 func (a *App) ServiceStartup(context.Context, application.ServiceOptions) error { return nil }
 
 func (a *App) ServiceShutdown() error {
-	if a.maohao != nil { a.maohao.stop() }
 	a.sleep.stop()
 	a.mu.Lock()
 	cmd := a.cmd
@@ -331,6 +329,7 @@ func (a *App) requestQuit() {
 }
 
 func main() {
+	if runtime.GOOS=="windows" && len(os.Args)>1 && os.Args[1]=="--maohao-agent" { if err:=runMaohaoAgent();err!=nil {log.Printf("Maohao agent: %v",err)};return }
 	store := &settingsStore{cur: loadSettings()}
 	api := &App{
 		store: store,
@@ -359,10 +358,9 @@ func main() {
 	api.app = app
 	attachOpenURLEventListener(app, api.OpenExternal)
 	attachFileDropEventListener(app, api)
-	api.maohao = newMaohaoMouseBridge(api)
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
 		applyAppIcon(app)
-		go api.maohao.start()
+		if runtime.GOOS == "windows" { go connectMaohaoAgent(api) }
 	})
 
 	win := app.Window.NewWithOptions(application.WebviewWindowOptions{

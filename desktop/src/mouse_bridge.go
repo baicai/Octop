@@ -23,6 +23,7 @@ const maxMaohaoPCMBytes = 16000 * 2 * 45
 
 type maohaoMouseBridge struct {
     app *App
+    agent *maohaoAgent
     mu sync.Mutex
     cmd *exec.Cmd
     stdin io.WriteCloser
@@ -131,6 +132,8 @@ func (m *maohaoMouseBridge) consumeLine(line []byte) {
 }
 
 func (m *maohaoMouseBridge) onKey(device,key,action string) {
+    if m.agent!=nil && key=="ai" && (action=="click" || action=="down") { m.agent.wake() }
+    if m.agent!=nil && action=="down" {m.agent.rememberFocus(device)}
     if key=="ai" && (action=="click" || action=="down") && m.app!=nil {
         m.app.showWindow()
         if m.app.window!=nil {
@@ -153,9 +156,7 @@ func (m *maohaoMouseBridge) onKey(device,key,action string) {
             m.emit("octop:maohao-status", map[string]string{"phase":"ready"})
             return
         }
-        m.emit("octop:maohao-audio",map[string]string{
-            "wavBase64":base64.StdEncoding.EncodeToString(buildMaohaoWav(pcm)),
-        })
+        if m.agent!=nil {m.agent.onAudio(device,buildMaohaoWav(pcm))} else {m.emit("octop:maohao-audio",map[string]string{"wavBase64":base64.StdEncoding.EncodeToString(buildMaohaoWav(pcm))})}
         m.emit("octop:maohao-status",map[string]string{"phase":"transcribing"})
     }
 }
@@ -179,6 +180,7 @@ func buildMaohaoWav(pcm []byte) []byte {
 }
 
 func (m *maohaoMouseBridge) emit(name string,data any) {
+    if m.agent!=nil {m.agent.broadcast(name,data);return}
     if m.app==nil || m.app.window==nil { return }
     jsonValue,err:=json.Marshal(data)
     if err!=nil { return }

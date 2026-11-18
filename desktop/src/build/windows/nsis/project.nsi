@@ -93,6 +93,7 @@ Section
 SectionEnd
 
 Section "uninstall"
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "OctopDemoMouseAgent"
     !insertmacro wails.setShellContext
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}"
