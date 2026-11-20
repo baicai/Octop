@@ -27,6 +27,7 @@ type App struct {
 	app            *application.App
 	window         *application.WebviewWindow
 	settingsWindow *application.WebviewWindow
+	commandWindow *application.WebviewWindow
 	store          *settingsStore
 	sleep          *sleepGuard
 	cmd            *exec.Cmd
@@ -105,6 +106,9 @@ func (a *App) SaveSettings(next Settings) (Settings, error) {
 	return saved, nil
 }
 
+func (a *App) ShowMouseCommands() {
+ if a.commandWindow!=nil{a.commandWindow.Show();a.commandWindow.Focus()}
+}
 func (a *App) ShowMain() {
 	a.showWindow()
 }
@@ -403,6 +407,11 @@ func main() {
 		},
 	})
 	api.settingsWindow = settingsWin
+ if runtime.GOOS=="windows" {
+  commands:=app.Window.NewWithOptions(application.WebviewWindowOptions{Title:"Octop · 指令管理",Width:860,Height:620,URL:"/commands.html",Hidden:true})
+  api.commandWindow=commands
+  commands.RegisterHook(events.Common.WindowClosing,func(e *application.WindowEvent){e.Cancel();commands.Hide()})
+ }
 	app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(event *application.ApplicationEvent) {
 		event.Cancel()
 		restoreMainAfterDockClick(api.window, api.settingsWindow)

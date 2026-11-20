@@ -145,6 +145,7 @@ func (m *maohaoMouseBridge) onKey(device,key,action string) {
         m.mu.Lock()
         if m.key=="" { m.device,m.key,m.pcm = device,key,nil }
         m.mu.Unlock()
+        if m.agent!=nil{mouseCommandNotice("recording","正在说话")}
         m.emit("octop:maohao-status", map[string]string{"phase":"recording"})
     case "up":
         m.mu.Lock()
@@ -153,10 +154,11 @@ func (m *maohaoMouseBridge) onKey(device,key,action string) {
         m.device,m.key,m.pcm = "","",nil
         m.mu.Unlock()
         if len(pcm)<3200 {
+            if m.agent!=nil{mouseCommandNotice("ready","")}
             m.emit("octop:maohao-status", map[string]string{"phase":"ready"})
             return
         }
-        if m.agent!=nil {m.agent.onAudio(device,buildMaohaoWav(pcm))} else {m.emit("octop:maohao-audio",map[string]string{"wavBase64":base64.StdEncoding.EncodeToString(buildMaohaoWav(pcm))})}
+        if m.agent!=nil {mouseCommandNotice("transcribing","识别中");m.agent.onAudio(device,buildMaohaoWav(pcm))} else {m.emit("octop:maohao-audio",map[string]string{"wavBase64":base64.StdEncoding.EncodeToString(buildMaohaoWav(pcm))})}
         m.emit("octop:maohao-status",map[string]string{"phase":"transcribing"})
     }
 }

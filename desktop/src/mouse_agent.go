@@ -70,6 +70,7 @@ defer os.Remove(maohaoTokenPath())
 a:=&maohaoAgent{peers:map[*maohaoPeer]struct{}{},worker:&maohaoOfflineWorker{}}
 m:=newMaohaoMouseBridge(nil);m.agent=a;a.bridge=m;a.listener=ln
 finished:=make(chan struct{})
+go mouseNoticeLoop()
 go func(){m.start();close(finished)}()
 defer func(){
   a.worker.stop()
@@ -150,19 +151,28 @@ if os.Getenv("OCTOP_MAOHAO_LOCAL_STT_URL")!="" {
 }
 if err!=nil {
   a.broadcast("octop:maohao-status",map[string]string{"phase":"local-stt-unavailable"})
+  mouseCommandNotice("error","语音识别未就绪或失败")
   log.Printf("Maohao local ASR unavailable: %T",err)
   return
 }
-a.broadcast("octop:maohao-status",map[string]string{"phase":"ready"})
 if window!=0&&maohaoIsOctopForeground(window) {
   a.broadcast("octop:maohao-transcript",map[string]string{"text":msg})
+  mouseCommandNotice("ready","")
   return
 }
-switch classifyMaohaoSpeech(msg){
-case "open-wechat":_ = maohaoOpenWeChat()
-case "dictate":
-if window!=0&&window==maohaoForegroundWindow(){_=maohaoTypeUnicode(msg)}
+items,readErr:=readMouseCommands()
+if readErr!=nil{mouseCommandNotice("error","指令集读取失败");return}
+if cmd,ok:=findMouseCommand(items,msg);ok {
+ if cmd.Action=="close-app"{mouseCommandNotice("error","关闭操作请在指令管理中确认执行");return}
+ mouseCommandNotice("executing",cmd.Name)
+ if err:=executeMouseCommand(cmd);err!=nil{mouseCommandNotice("error","指令执行失败");return}
+ mouseCommandNotice("ready","")
+ return
 }
+if strings.TrimSpace(msg)==""{mouseCommandNotice("error","未识别到语音");return}
+if window==0||window!=maohaoForegroundWindow(){mouseCommandNotice("error","未识别到指令，输入焦点已变化");return}
+if err:=maohaoTypeUnicode(msg);err!=nil{mouseCommandNotice("error","文字输入失败");return}
+mouseCommandNotice("ready","")
 }
 func maohaoLocalSTT(wav []byte)(string,error){
 raw:=strings.TrimSpace(os.Getenv("OCTOP_MAOHAO_LOCAL_STT_URL"))
