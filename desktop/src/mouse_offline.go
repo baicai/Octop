@@ -102,10 +102,12 @@ func ensureSenseVoiceModels(notify func(string,any)) (string,error){
  for _,asset:=range senseVoiceAssets{
   target:=filepath.Join(root,asset.Name)
   if modelHashMatches(target,asset){continue}
+  mouseCommandNotice("model","正在下载离线语音模型")
   notify("octop:maohao-status",map[string]string{"phase":"model-downloading","resource":asset.Name})
   var first error
   for i,src:=range []string{asset.URL,strings.Replace(asset.URL,"https://huggingface.co/","https://hf-mirror.com/",1)}{
     err:=downloadModelOne(root,asset,src,func(pct int){
+      mouseCommandNotice("model",fmt.Sprintf("正在下载离线语音模型 %d%%",pct))
       notify("octop:maohao-status",map[string]any{
         "phase":"model-downloading","resource":asset.Name,"progress":pct,
       })
@@ -117,6 +119,7 @@ func ensureSenseVoiceModels(notify func(string,any)) (string,error){
     return "",fmt.Errorf("offline speech model preparation failed for %s",asset.Name)
   }
  }
+ mouseCommandNotice("transcribing","识别中")
  notify("octop:maohao-status",map[string]string{"phase":"model-ready"})
  return root,nil
 }
@@ -190,6 +193,7 @@ func (w *maohaoOfflineWorker) transcribe(wav []byte,notify func(string,any))(str
   _=root
  }
  if w.cmd==nil {
+  mouseCommandNotice("model","正在加载离线语音模型")
   notify("octop:maohao-status",map[string]string{"phase":"model-loading"})
   if err:=w.start(senseVoiceModelDir());err!=nil{w.reset();return "",err}
  }

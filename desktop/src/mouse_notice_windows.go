@@ -30,7 +30,7 @@ func mouseNoticeLoop(){
  var msg noticeMessage
  for{ok,_,_:=peek.Call(uintptr(unsafe.Pointer(&msg)),0,0,0,1);if ok==0{break};translate.Call(uintptr(unsafe.Pointer(&msg)));dispatch.Call(uintptr(unsafe.Pointer(&msg)))}
  mouseNoticeState.Lock();phase,text:=mouseNoticeState.phase,mouseNoticeState.text;mouseNoticeState.Unlock()
- if phase=="recording"||phase=="transcribing"||phase=="executing"||phase=="error"{
+ if phase=="recording"||phase=="transcribing"||phase=="executing"||phase=="error"||phase=="model"{
  if phase=="executing"{text="正在"+text}
  if phase!="error"{text+=[]string{".","..","..."}[i%3]}
  p,e:=syscall.UTF16PtrFromString(text);if e==nil{setText.Call(hwnd,uintptr(unsafe.Pointer(p)))}
