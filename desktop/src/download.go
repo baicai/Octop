@@ -33,13 +33,24 @@ func pythonExe(root string) string {
 	return filepath.Join(root, "runtime", "bin", "python3")
 }
 
+func portableHasMaohaoOffline(root string) bool {
+	if runtime.GOOS != "windows" {return true}
+	for _, name := range []string{"sensevoice_worker.py", filepath.Join("packages","sherpa_onnx")} {
+		if _, err := os.Stat(filepath.Join(root,name)); err != nil { return false }
+	}
+	return true
+}
+
 func ensurePortable(locale Locale, status func(string)) error {
 	root := portableDir()
 	if launchReady(root) {
 		currentVersion := portableVersion(root)
 		bundledVersion, err := bundledPortableVersion()
+		// A pre-Maohao demo can share Octop's package version but lack the
+		// local speech worker. Upgrade the portable runtime in that case.
+		missingOfflineVoice := runtime.GOOS == "windows" && !portableHasMaohaoOffline(root)
 		if err != nil || bundledVersion == "" ||
-			(currentVersion != "" && compareVersions(bundledVersion, currentVersion) <= 0) {
+			(currentVersion != "" && compareVersions(bundledVersion, currentVersion) <= 0 && !missingOfflineVoice) {
 			status(desktopText(locale, copyStatusUsingRuntime))
 			return nil
 		}

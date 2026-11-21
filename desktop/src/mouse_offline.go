@@ -143,7 +143,7 @@ func (w *maohaoOfflineWorker) start(root string)error{
  portable:=portableDir()
  py:=pythonExe(portable)
  script:=filepath.Join(portable,"sensevoice_worker.py")
- if _,err:=os.Stat(py);err!=nil {
+ if _,err:=os.Stat(py);err!=nil || !portableHasMaohaoOffline(portable) {
   // Installation may launch this headless agent before any Octop window
   // has been opened. Extract the already bundled Python runtime here.
   // Never ask the user to install Python manually.
