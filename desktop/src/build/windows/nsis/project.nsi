@@ -7,6 +7,8 @@ Unicode true
 
 # Written by stamp_version.py nsis-defines (pep440 display + X.X.X.X file version).
 !include /nonfatal "version_defines.nsh"
+# A separate installer identity keeps the standard Octop installation intact.
+!define INFO_PRODUCTNAME "Octop Demo"
 !include "wails_tools.nsh"
 
 SetCompressor /SOLID lzma
@@ -74,6 +76,13 @@ Section
 
     !insertmacro wails.files
 
+    ; Windows evaluation only: packaged vendor DLL and isolated SDK helper.
+    !if /FileExists "umouse-sdk\\umouse-bridge.exe"
+        SetOutPath "$INSTDIR\\umouse-sdk"
+        File /r "umouse-sdk\\*"
+        SetOutPath "$INSTDIR"
+    !endif
+
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortcut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
@@ -81,9 +90,19 @@ Section
     !insertmacro wails.associateCustomProtocols
 
     !insertmacro wails.writeUninstaller
+
+    ; Per-user background SDK listener starts without opening the main GUI.
+    ; Portable Python + verified model files are prepared on first voice use.
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "OctopDemoMouseAgent" '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent'
+    Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent'
 SectionEnd
 
 Section "uninstall"
+    ; Stop only the authenticated Octop Demo agent, not other Octop installations.
+    IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 skipMouseStop
+    ExecWait '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent-stop'
+    skipMouseStop:
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "OctopDemoMouseAgent"
     !insertmacro wails.setShellContext
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}"

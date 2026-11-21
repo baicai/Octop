@@ -27,6 +27,7 @@ type App struct {
 	app            *application.App
 	window         *application.WebviewWindow
 	settingsWindow *application.WebviewWindow
+	commandWindow *application.WebviewWindow
 	store          *settingsStore
 	sleep          *sleepGuard
 	cmd            *exec.Cmd
@@ -105,6 +106,9 @@ func (a *App) SaveSettings(next Settings) (Settings, error) {
 	return saved, nil
 }
 
+func (a *App) ShowMouseCommands() {
+ if a.commandWindow!=nil{a.commandWindow.Show();a.commandWindow.Focus()}
+}
 func (a *App) ShowMain() {
 	a.showWindow()
 }
@@ -329,6 +333,8 @@ func (a *App) requestQuit() {
 }
 
 func main() {
+	if runtime.GOOS=="windows" && len(os.Args)>1 && os.Args[1]=="--maohao-agent-stop" { _ = shutdownMaohaoAgent();return }
+	if runtime.GOOS=="windows" && len(os.Args)>1 && os.Args[1]=="--maohao-agent" { if err:=runMaohaoAgent();err!=nil {log.Printf("Maohao agent: %v",err)};return }
 	store := &settingsStore{cur: loadSettings()}
 	api := &App{
 		store: store,
@@ -336,8 +342,8 @@ func main() {
 	}
 
 	app := application.New(application.Options{
-		Name:        "Octop",
-		Description: "Octop desktop",
+		Name:        "Octop Demo",
+		Description: "Octop Demo desktop",
 		Services: []application.Service{
 			application.NewService(api),
 		},
@@ -359,10 +365,11 @@ func main() {
 	attachFileDropEventListener(app, api)
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
 		applyAppIcon(app)
+		if runtime.GOOS == "windows" { go connectMaohaoAgent(api) }
 	})
 
 	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:                "Octop",
+		Title:                "Octop Demo",
 		Width:                1200,
 		Height:               800,
 		URL:                  "/",
@@ -386,7 +393,7 @@ func main() {
 	win.OnWindowEvent(events.Windows.WebViewNavigationCompleted, installDragOverlay)
 	win.OnWindowEvent(events.Linux.WindowLoadFinished, installDragOverlay)
 	settingsWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Octop 设置",
+		Title:            "Octop Demo 设置",
 		Width:            settingsWindowWidth,
 		Height:           settingsWindowOuterHeight(),
 		URL:              "/?settings=1",
@@ -400,6 +407,11 @@ func main() {
 		},
 	})
 	api.settingsWindow = settingsWin
+ if runtime.GOOS=="windows" {
+  commands:=app.Window.NewWithOptions(application.WebviewWindowOptions{Title:"Octop · 指令管理",Width:860,Height:620,URL:"/commands.html",Hidden:true})
+  api.commandWindow=commands
+  commands.RegisterHook(events.Common.WindowClosing,func(e *application.WindowEvent){e.Cancel();commands.Hide()})
+ }
 	app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(event *application.ApplicationEvent) {
 		event.Cancel()
 		restoreMainAfterDockClick(api.window, api.settingsWindow)
@@ -430,7 +442,7 @@ func main() {
 
 	tray := app.SystemTray.New()
 	applyTrayIcon(tray)
-	tray.SetTooltip("Octop")
+	tray.SetTooltip("Octop Demo")
 	tray.AttachWindow(settingsWin).WindowOffset(6)
 	showSettings := func() { tray.ShowWindow() }
 	if trayLeftClickShowsSettings(runtime.GOOS) {

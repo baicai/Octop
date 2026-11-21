@@ -153,7 +153,7 @@ func resolveDashboardURL() string {
 
 func resolveListen() (string, int) {
 	host := "127.0.0.1"
-	port := 8088
+	port := 18088
 	if data, err := os.ReadFile(filepath.Join(octopHome(), "config.json")); err == nil {
 		var raw struct {
 			BindHost string `json:"bind_host"`
@@ -219,7 +219,8 @@ func listenProbe(host string, port int) (bool, error) {
 		_ = ln.Close()
 		return false, nil
 	}
-	if errors.Is(err, syscall.EADDRINUSE) {
+	// Windows reports WSAEADDRINUSE (10048), not the Unix EADDRINUSE errno.
+	if errors.Is(err, syscall.EADDRINUSE) || errors.Is(err, syscall.Errno(10048)) {
 		return true, nil
 	}
 	return false, err
