@@ -85,7 +85,8 @@ func (a *App) SaveMouseCommands(items []MouseCommand)error{
  defer os.Remove(f.Name())
  if _,err=f.Write(raw);err!=nil{f.Close();return err}
  if err=f.Close();err!=nil{return err}
- return replaceMouseCommandFile(f.Name(),mouseCommandPath())
+ if err:=replaceMouseCommandFile(f.Name(),mouseCommandPath());err!=nil{return err}
+return pruneMouseRecordings(items)
 }
 func (a *App) TestMouseCommand(id string,confirmed bool)error{
  commandLock.Lock();items,err:=readMouseCommands();commandLock.Unlock()
