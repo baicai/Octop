@@ -281,8 +281,12 @@ assemble_one() {
       zip -qry "$zip_name" "Octop-${plat}"
     else
       # Windows runners often have `python` but not `python3` / `zip`.
+      # Use the bundled interpreter on Windows, where 'python' may be
+      # only a Microsoft Store alias (exit 49) instead of a real Python.
       py=""
-      if command -v python3 >/dev/null 2>&1; then
+      if [[ "$plat" == "windows-amd64" && -f "${staging}/runtime/python.exe" ]]; then
+        py="${staging}/runtime/python.exe"
+      elif command -v python3 >/dev/null 2>&1; then
         py=python3
       elif command -v python >/dev/null 2>&1; then
         py=python
