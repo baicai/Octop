@@ -1,20 +1,76 @@
 <!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>指令管理</title>
 <style>body{font:14px "Segoe UI",sans-serif;margin:0;color:#111827;background:#f6f7f9}main{padding:24px}h1{font-size:22px;margin:0 0 8px}p{color:#6b7280}button,input,select,textarea{font:inherit;padding:8px;border:1px solid #d1d5db;border-radius:6px;background:white}button{cursor:pointer}button.primary{background:#e85d75;color:white;border:0}table{width:100%;border-collapse:collapse;background:white;margin-top:16px}td,th{text-align:left;padding:12px;border-bottom:1px solid #e5e7eb;vertical-align:top}th{color:#6b7280;font-weight:500}td small{display:block;color:#6b7280}dialog{border:1px solid #ddd;border-radius:12px;width:min(480px,85vw)}label{display:block;margin:10px 0}label input:not([type=checkbox]),label select,label textarea{display:block;width:95%;margin-top:5px}#status{min-height:20px;color:#bc465e}button+button{margin-left:6px}</style>
 <main><h1>指令管理</h1><p>管理本机语音触发词和操作。修改后立即应用，无需重启。</p><input id="search" placeholder="搜索指令"><button id="add" class="primary">新增指令</button><p id="status" role="status"></p><table><thead><tr><th>指令及别名</th><th>操作</th><th>启用</th><th>管理</th></tr></thead><tbody id="rows"></tbody></table></main>
-<dialog id="editor"><h2 id="heading">编辑指令</h2><label>触发文字<input id="name" maxlength="100"></label><label>别名（每行一个）<textarea id="aliases" rows="3"></textarea></label><label>操作类型<select id="action"><option value="open-app">启动应用</option><option value="open-url">访问网址</option><option value="close-app">关闭窗口（测试时确认）</option></select></label><label id="app-label">目标应用<select id="app"><option value="wechat">微信</option><option value="calculator">计算器</option><option value="notepad">记事本</option><option value="browser">浏览器</option></select></label><label id="url-label" hidden>网址<input id="url" placeholder="https://"></label><label><input type="checkbox" id="enabled" checked>启用</label><p id="err" role="alert"></p><button id="save" class="primary">保存</button><button id="cancel">取消</button></dialog>
+<dialog id="editor"><h2 id="heading">编辑指令</h2><label>触发文字<input id="name" maxlength="100"></label><label>语音样本（可选）<div><button id="record" type="button">开始录音</button><button id="preview" type="button">试听录音</button></div><small id="record-status">录制后自动转为文字，原声仅保存在本机</small></label><label>别名（每行一个）<textarea id="aliases" rows="3"></textarea></label><label>操作类型<select id="action"><option value="open-app">启动应用</option><option value="open-url">访问网址</option><option value="close-app">关闭窗口（测试时确认）</option></select></label><label id="app-label">目标应用<select id="app"><option value="wechat">微信</option><option value="calculator">计算器</option><option value="notepad">记事本</option><option value="browser">浏览器</option></select></label><label id="url-label" hidden>网址<input id="url" placeholder="https://"></label><label><input type="checkbox" id="enabled" checked>启用</label><p id="err" role="alert"></p><button id="save" class="primary">保存</button><button id="cancel">取消</button></dialog>
 <script type="module">
 import {Call} from "/wails/runtime.js";
 const $=id=>document.getElementById(id),call=(name,...args)=>Call.ByName("main.App."+name,...args);
-let items=[],editing=null;
+let items=[],editing=null,recordedWav='',recorder=null,micStream=null,recordTimeout=null;
 const appNames={wechat:"微信",calculator:"计算器",notepad:"记事本",browser:"浏览器"};
 const actionNames={"open-app":"启动应用","close-app":"关闭窗口","open-url":"访问网址"};
 function status(s){$("status").textContent=s}
 function syncEditor(){const url=$("action").value==="open-url";$("url-label").hidden=!url;$("app-label").hidden=url}
-function edit(c){editing=c?.id??null;$("name").value=c?.name??"";$("aliases").value=(c?.aliases??[]).join("\n");$("action").value=c?.action??"open-app";$("app").value=c?.action==="open-url"?"wechat":c?.target??"wechat";$("url").value=c?.action==="open-url"?c.target:"";$("enabled").checked=c?.enabled??true;$("err").textContent="";syncEditor();$("editor").showModal()}
+function edit(c){editing=c?.id??null;recordedWav='';$("record-status").textContent="可录制语音并自动识别成触发文字";$("name").value=c?.name??"";$("aliases").value=(c?.aliases??[]).join("\n");$("action").value=c?.action??"open-app";$("app").value=c?.action==="open-url"?"wechat":c?.target??"wechat";$("url").value=c?.action==="open-url"?c.target:"";$("enabled").checked=c?.enabled??true;$("err").textContent="";syncEditor();$("editor").showModal()}
 async function persist(next){await call("SaveMouseCommands",next);items=next;render();status("已保存")}
 function button(text,run){const b=document.createElement("button");b.textContent=text;b.onclick=async()=>{try{await run()}catch(e){status(String(e))}};return b}
-function render(){const body=$("rows");body.replaceChildren();for(const c of items.filter(c=>[c.name,...c.aliases].join(" ").includes($("search").value))){const tr=body.insertRow(),name=tr.insertCell();name.textContent=c.name;const alias=document.createElement("small");alias.textContent=c.aliases.join("、");name.append(alias);tr.insertCell().textContent=actionNames[c.action]+" · "+(appNames[c.target]??c.target);const enabled=tr.insertCell();const check=document.createElement("input");check.type="checkbox";check.checked=c.enabled;check.onchange=async()=>{try{await persist(items.map(x=>x.id===c.id?{...x,enabled:check.checked}:x))}catch(e){check.checked=c.enabled;status(String(e))}};enabled.append(check);const ops=tr.insertCell();ops.append(button("试听",()=>{if(!("speechSynthesis" in window))throw Error("未找到本地朗读服务");const u=new SpeechSynthesisUtterance(c.name);u.lang="zh-CN";const v=speechSynthesis.getVoices().find(v=>v.localService&&v.lang.startsWith("zh"));if(!v)throw Error("未找到本地中文语音");u.voice=v;speechSynthesis.speak(u)}),button("编辑",()=>edit(c)),button("测试",async()=>{if(c.action==="close-app"&&!confirm("确认关闭微信窗口？"))return;await call("TestMouseCommand",c.id,true);status("已发出操作")}),button("删除",async()=>{if(confirm("删除指令："+c.name+"？"))await persist(items.filter(x=>x.id!==c.id))}))}}
-$("search").oninput=render;$("add").onclick=()=>edit(null);$("cancel").onclick=()=>$("editor").close();$("action").onchange=syncEditor;
-$("save").onclick=async()=>{try{const c={id:editing??crypto.randomUUID(),name:$("name").value.trim(),aliases:$("aliases").value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean),action:$("action").value,target:$("action").value==="open-url"?$("url").value.trim():$("app").value,enabled:$("enabled").checked};await persist(editing?items.map(x=>x.id===editing?c:x):[...items,c]);$("editor").close()}catch(e){$("err").textContent=String(e)}};
+function render(){const body=$("rows");body.replaceChildren();for(const c of items.filter(c=>[c.name,...c.aliases].join(" ").includes($("search").value))){const tr=body.insertRow(),name=tr.insertCell();name.textContent=c.name;const alias=document.createElement("small");alias.textContent=c.aliases.join("、");name.append(alias);tr.insertCell().textContent=actionNames[c.action]+" · "+(appNames[c.target]??c.target);const enabled=tr.insertCell();const check=document.createElement("input");check.type="checkbox";check.checked=c.enabled;check.onchange=async()=>{try{await persist(items.map(x=>x.id===c.id?{...x,enabled:check.checked}:x))}catch(e){check.checked=c.enabled;status(String(e))}};enabled.append(check);const ops=tr.insertCell();ops.append(button("试听",async()=>{const sample=await call("GetMouseCommandRecording",c.id);if(sample){await new Audio("data:audio/wav;base64,"+sample).play();return}if(!("speechSynthesis" in window))throw Error("未找到本地朗读服务");const u=new SpeechSynthesisUtterance(c.name);u.lang="zh-CN";const v=speechSynthesis.getVoices().find(v=>v.localService&&v.lang.startsWith("zh"));if(!v)throw Error("未找到本地中文语音");u.voice=v;speechSynthesis.speak(u)}),button("编辑",()=>edit(c)),button("测试",async()=>{if(c.action==="close-app"&&!confirm("确认关闭微信窗口？"))return;await call("TestMouseCommand",c.id,true);status("已发出操作")}),button("删除",async()=>{if(confirm("删除指令："+c.name+"？"))await persist(items.filter(x=>x.id!==c.id))}))}}
+function b64(bytes){let result="";for(let i=0;i<bytes.length;i+=8192){result+=String.fromCharCode(...bytes.subarray(i,i+8192))}return btoa(result)}
+async function wavFromBlob(blob){
+  if(blob.size===0)throw Error("没有录制到声音");
+  const context=new AudioContext();
+  try{
+    const decoded=await context.decodeAudioData(await blob.arrayBuffer());
+    const frames=Math.round(decoded.duration*16000);
+    if(frames<1600||frames>16000*45)throw Error("录音时长应为0.1到45秒");
+    const offline=new OfflineAudioContext(1,frames,16000);
+    const source=offline.createBufferSource();source.buffer=decoded;source.connect(offline.destination);source.start();
+    const result=await offline.startRendering(),samples=result.getChannelData(0),wav=new Uint8Array(44+samples.length*2),view=new DataView(wav.buffer);
+    const str=(at,value)=>{for(let i=0;i<value.length;i++)wav[at+i]=value.charCodeAt(i)};
+    str(0,"RIFF");view.setUint32(4,wav.length-8,true);str(8,"WAVE");str(12,"fmt ");
+    view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);
+    view.setUint32(24,16000,true);view.setUint32(28,32000,true);view.setUint16(32,2,true);
+    view.setUint16(34,16,true);str(36,"data");view.setUint32(40,samples.length*2,true);
+    for(let i=0;i<samples.length;i++){const clamped=Math.max(-1,Math.min(1,samples[i]));view.setInt16(44+i*2,clamped<0?clamped*32768:clamped*32767,true)}
+    return b64(wav);
+  } finally{await context.close()}
+}
+function stopMic(){
+  if(recordTimeout!==null){clearTimeout(recordTimeout);recordTimeout=null}
+  if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null}
+  recorder=null;$("record").textContent="重新录音";
+}
+$("record").addEventListener("click",async()=>{
+  if(recorder&&recorder.state==="recording"){recorder.stop();return}
+  try{
+    micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+    const chunks=[];recorder=new MediaRecorder(micStream);
+    recorder.ondataavailable=(event)=>{if(event.data.size)chunks.push(event.data)};
+    recorder.onstop=async()=>{
+      const blob=new Blob(chunks,{type:recorder?.mimeType??"audio/webm"});
+      stopMic();
+      try{
+        $("record-status").textContent="录音完成，正在转换并识别…";
+        recordedWav=await wavFromBlob(blob);
+        $("record-status").textContent="正在通过本地 SenseVoice 转为文字…";
+        const spoken=await call("TranscribeMouseCommandRecording",recordedWav);
+        if(spoken){$("name").value=spoken;$("record-status").textContent="录音已保存到编辑草稿，识别文字："+spoken}
+        else{$("record-status").textContent="未识别到文字，可手动输入触发词，录音仍可保存"}
+      }catch(e){$("record-status").textContent=String(e)}
+    };
+    recorder.start();$("record").textContent="停止录音";
+    $("record-status").textContent="正在录音…再次点击停止，最长45秒";
+    recordTimeout=setTimeout(()=>{if(recorder?.state==="recording")recorder.stop()},45000);
+  }catch(e){stopMic();$("record-status").textContent="麦克风不可用："+String(e)}
+});
+$("preview").addEventListener("click",async()=>{
+ try{
+  const audio=recordedWav||editing&&await call("GetMouseCommandRecording",editing);
+  if(!audio)throw Error("没有录音样本");
+  await new Audio("data:audio/wav;base64,"+audio).play();
+ }catch(e){$("record-status").textContent=String(e)}
+});
+
+$("search").oninput=render;$("add").onclick=()=>edit(null);$("cancel").onclick=()=>{if(recorder?.state==="recording")recorder.stop();recordedWav="";$("editor").close()};$("action").onchange=syncEditor;
+$("save").onclick=async()=>{try{const c={id:editing??crypto.randomUUID(),name:$("name").value.trim(),aliases:$("aliases").value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean),action:$("action").value,target:$("action").value==="open-url"?$("url").value.trim():$("app").value,enabled:$("enabled").checked};await persist(editing?items.map(x=>x.id===editing?c:x):[...items,c]);if(recordedWav){await call("SaveMouseCommandRecording",c.id,recordedWav);status("指令与本地语音已保存")}recordedWav="";$("editor").close()}catch(e){$("err").textContent=String(e)}};
 try{items=(await call("ListMouseCommands"))??[];render()}catch(e){status(String(e))}
 </script></html>
