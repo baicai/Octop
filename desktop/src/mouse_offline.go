@@ -196,8 +196,7 @@ func (w *maohaoOfflineWorker) transcribe(wav []byte,notify func(string,any))(str
  if len(wav)>16000*2*45+44{return "",errors.New("PCM recording too large")}
  payload,err:=json.Marshal(map[string]string{"wavBase64":base64.StdEncoding.EncodeToString(wav)})
  if err!=nil{return "",err}
- if _,err=w.input.Write(append(payload,'
-'));err!=nil{w.reset();return "",err}
+ if _,err=w.input.Write(append(payload,'\n'));err!=nil{w.reset();return "",err}
  select{
  case line,ok:=<-w.lines:
   if !ok{w.reset();return "",errors.New("SenseVoice worker exited")}
