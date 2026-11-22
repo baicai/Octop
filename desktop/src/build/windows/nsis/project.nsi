@@ -32,6 +32,7 @@ ManifestDPIAware true
 !include "MUI.nsh"
 !include "nsDialogs.nsh"
 !include "LogicLib.nsh"
+!include "install_location.nsh"
 Var UnDeleteOfflineModels
 Var UnModelsCheckbox
 Function un.OfflineModelsPage
@@ -60,7 +61,9 @@ FunctionEnd
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
 !insertmacro MUI_PAGE_WELCOME
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipDirectoryForOctopUpgrade
 !insertmacro MUI_PAGE_DIRECTORY
+!undef MUI_PAGE_CUSTOMFUNCTION_PRE
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
@@ -89,6 +92,7 @@ Function .onInit
     !insertmacro MUI_LANGDLL_DISPLAY
     skipLang:
     !insertmacro wails.checkArchitecture
+    Call DetectExistingOctopDemo
 FunctionEnd
 
 Section
@@ -114,6 +118,12 @@ Section
     !insertmacro wails.associateCustomProtocols
 
     !insertmacro wails.writeUninstaller
+    SetRegView 64
+    !if "${WAILS_INSTALL_SCOPE}" == "user"
+        WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+    !else
+        WriteRegStr HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+    !endif
 
     ; Per-user background SDK listener starts without opening the main GUI.
     ; Portable Python + verified model files are prepared on first voice use.
