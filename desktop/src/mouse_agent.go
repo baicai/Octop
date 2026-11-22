@@ -192,6 +192,9 @@ func (a *maohaoAgent)backgroundAction(wav []byte,window uintptr){
  }
  preview,count,hash:=maohaoDebugTranscript(msg)
  maohaoDebug("asr.result","source",source,"runes",count,"hash12",hash,"command_preview",preview)
+ // Show exactly the recognized UTF-8 text while executing a command or
+ // inserting it into the focused input, without stealing focus.
+ if strings.TrimSpace(msg)!="" {mouseCommandNotice("recognized",msg)}
  items,readErr:=readMouseCommands()
  if readErr!=nil{
   maohaoDebug("commands.read_failed","error",maohaoDebugErr(readErr))
