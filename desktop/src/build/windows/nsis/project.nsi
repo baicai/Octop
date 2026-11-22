@@ -30,6 +30,28 @@ VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 ManifestDPIAware true
 
 !include "MUI.nsh"
+!include "nsDialogs.nsh"
+!include "LogicLib.nsh"
+Var UnDeleteOfflineModels
+Var UnModelsCheckbox
+Function un.OfflineModelsPage
+    StrCpy $UnDeleteOfflineModels 1
+    nsDialogs::Create 1018
+    Pop $0
+    ${If} $0 == error
+        Abort
+    ${EndIf}
+    ${NSD_CreateLabel} 0 4u 100% 28u "卸载 Octop Demo 时可删除本地 SenseVoice 离线语音模型，其他数据保留。"
+    Pop $0
+    ${NSD_CreateCheckbox} 0 42u 100% 18u "删除本地离线语音模型（默认）"
+    Pop $UnModelsCheckbox
+    ${NSD_Check} $UnModelsCheckbox
+    nsDialogs::Show
+FunctionEnd
+Function un.OfflineModelsPageLeave
+    ${NSD_GetState} $UnModelsCheckbox $UnDeleteOfflineModels
+FunctionEnd
+
 
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
@@ -41,6 +63,8 @@ ManifestDPIAware true
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
+
+UninstPage custom un.OfflineModelsPage un.OfflineModelsPageLeave
 
 !insertmacro MUI_UNPAGE_INSTFILES
 
@@ -98,6 +122,18 @@ Section
 SectionEnd
 
 Section "uninstall"
+    ${If} ${Silent}
+        StrCpy $UnDeleteOfflineModels 1
+    ${EndIf}
+    ${If} $UnDeleteOfflineModels != 0
+        InitPluginsDir
+        File "/oname=$PLUGINSDIR\remove-offline-models.ps1" "remove-offline-models.ps1"
+        ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\remove-offline-models.ps1"' $0
+        ${If} $0 != 0
+            DetailPrint "SenseVoice model removal failed or skipped; other data preserved."
+        ${EndIf}
+    ${EndIf}
+
     ; Stop only the authenticated Octop Demo agent, not other Octop installations.
     IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 skipMouseStop
     ExecWait '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent-stop'
