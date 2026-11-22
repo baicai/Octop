@@ -35,7 +35,7 @@ func pythonExe(root string) string {
 
 func portableHasMaohaoOffline(root string) bool {
 	if runtime.GOOS != "windows" {return true}
-	for _, name := range []string{"sensevoice_worker.py", filepath.Join("packages","sherpa_onnx")} {
+	for _, name := range []string{"sensevoice_worker.py", filepath.Join("packages","sherpa_onnx","__init__.py"),filepath.Join("packages","sherpa_onnx","lib")} {
 		if _, err := os.Stat(filepath.Join(root,name)); err != nil { return false }
 	}
 	return true
@@ -76,6 +76,9 @@ func ensurePortable(locale Locale, status func(string)) error {
 }
 
 func replacePortable(root string) error {
+ return withPortableMutationLock(func()error{return replacePortableUnlocked(root)})
+}
+func replacePortableUnlocked(root string) error {
 	next := root + ".new"
 	previous := root + ".previous"
 	_ = os.RemoveAll(next)

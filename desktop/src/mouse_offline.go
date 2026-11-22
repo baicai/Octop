@@ -153,7 +153,7 @@ func (w *maohaoOfflineWorker) start(root string)error{
  // worker. Repair only when a physical mouse recording needs local ASR:
  // leave the core version-comparison/backup logic unchanged.
  if !portableHasMaohaoOffline(portable) {
-  if err:=replacePortable(portable);err!=nil {
+  if err:=repairMaohaoSpeechRuntime(portable);err!=nil {
     return fmt.Errorf("bundled speech runtime repair failed: %w",err)
   }
  }
