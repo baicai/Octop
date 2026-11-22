@@ -72,7 +72,16 @@ a:=&maohaoAgent{peers:map[*maohaoPeer]struct{}{},worker:&maohaoOfflineWorker{}}
 m:=newMaohaoMouseBridge(nil);m.agent=a;a.bridge=m;a.listener=ln
 finished:=make(chan struct{})
 go mouseNoticeLoop()
-go func(){m.start();close(finished)}()
+go func(){
+defer close(finished)
+for {
+m.start()
+m.mu.Lock();stopped:=m.stopped;m.mu.Unlock()
+if stopped{return}
+// If the SDK helper crashes, restart its listener without requiring a GUI.
+time.Sleep(2*time.Second)
+}
+}()
 defer func(){
   a.worker.stop()
   m.stop()
@@ -101,7 +110,9 @@ if hello.Action!="" {return}
 p:=&maohaoPeer{conn:conn}
 a.mu.Lock();a.peers[p]=struct{}{};a.mu.Unlock()
 defer func(){a.mu.Lock();delete(a.peers,p);a.mu.Unlock()}()
-_=p.send(maohaoPacket{Event:"octop:maohao-status",Detail:json.RawMessage(`{"phase":"agent-connected"}`)})
+exePath,_:=os.Executable()
+status,_:=json.Marshal(map[string]string{"phase":"agent-connected","executable":exePath})
+_=p.send(maohaoPacket{Event:"octop:maohao-status",Detail:status})
 _=conn.SetReadDeadline(time.Time{})
 // One way only: a renderer cannot ask this agent to record or inject input.
 _,_=io.Copy(io.Discard,io.LimitReader(r,1024))
@@ -198,12 +209,20 @@ func shutdownMaohaoAgent()error{
  _=conn.SetDeadline(time.Now().Add(2*time.Second))
  return json.NewEncoder(conn).Encode(map[string]string{"token":secret,"action":"shutdown"})
 }
+// A listener from a removed or superseded checkout cannot own the SDK.
+func sameMaohaoExecutable(agentPath,clientPath string)bool{
+return agentPath!="" && clientPath!="" && strings.EqualFold(filepath.Clean(agentPath),filepath.Clean(clientPath))
+}
+func launchMaohaoAgent(exe string){
+cmd:=exec.Command(exe,"--maohao-agent");prepareMaohaoCommand(cmd)
+if err:=cmd.Start();err!=nil{log.Printf("Maohao agent start failed: %v",err);return}
+go func(){_=cmd.Wait()}()
+}
 func connectMaohaoAgent(a *App){
 if runtime.GOOS!="windows"{return}
 _ = maohaoRegisterLoginStart()
 exe,err:=os.Executable();if err!=nil{return}
-cmd:=exec.Command(exe,"--maohao-agent");prepareMaohaoCommand(cmd)
-if cmd.Start()==nil{go func(){_=cmd.Wait()}()}
+launchMaohaoAgent(exe)
 for {
 secret,err:=maohaoToken()
 if err!=nil {time.Sleep(time.Second);continue}
@@ -214,6 +233,19 @@ s:=bufio.NewScanner(conn);s.Buffer(make([]byte,65536),4*1024*1024)
 for s.Scan(){
 var pkt maohaoPacket
 if json.Unmarshal(s.Bytes(),&pkt)!=nil{continue}
+if pkt.Event=="octop:maohao-status" {
+var status struct{Phase string `json:"phase"`;Executable string `json:"executable"`}
+if json.Unmarshal(pkt.Detail,&status)==nil && status.Phase=="agent-connected" && !sameMaohaoExecutable(status.Executable,exe){
+ // Shut down the stale SDK owner using the authenticated local IPC command.
+ conn.Close()
+ if err:=shutdownMaohaoAgent();err!=nil{log.Printf("Maohao stale agent shutdown failed: %v",err)} else {
+ // The old process may spend up to three seconds closing its SDK helper.
+ time.Sleep(3500*time.Millisecond)
+ launchMaohaoAgent(exe)
+ }
+ break
+}
+}
 if pkt.Event=="octop:maohao-wake" {a.showWindow();continue}
 if (pkt.Event=="octop:maohao-transcript"||pkt.Event=="octop:maohao-audio"||pkt.Event=="octop:maohao-status")&&a.window!=nil{
 name,_:=json.Marshal(pkt.Event)

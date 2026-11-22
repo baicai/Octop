@@ -132,14 +132,22 @@ func (m *maohaoMouseBridge) consumeLine(line []byte) {
 }
 
 func (m *maohaoMouseBridge) onKey(device,key,action string) {
-    if m.agent!=nil && key=="ai" && (action=="click" || action=="down") { m.agent.wake() }
-    if m.agent!=nil && action=="down" {m.agent.rememberFocus(device)}
-    if key=="ai" && (action=="click" || action=="down") && m.app!=nil {
-        m.app.showWindow()
-        if m.app.window!=nil {
-            m.app.window.ExecJS("if (!location.pathname.startsWith('/chat')) location.assign('/chat');")
+    // AI is an app-wake button, not a microphone. Wake only on release/click
+    // (some firmware emits both) so a press never starts audio capture.
+    if key=="ai" {
+        if action=="click" || action=="up" {
+            if m.agent!=nil { m.agent.wake() }
+            if m.app!=nil {
+                m.app.showWindow()
+                if m.app.window!=nil {
+                    m.app.window.ExecJS("if (!location.pathname.startsWith('/chat')) location.assign('/chat');")
+                }
+            }
         }
+        return
     }
+    if key!="speech" { return }
+    if m.agent!=nil && action=="down" {m.agent.rememberFocus(device)}
     switch action {
     case "down":
         m.mu.Lock()

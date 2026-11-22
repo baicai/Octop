@@ -98,6 +98,13 @@ FunctionEnd
 Section
     !insertmacro wails.setShellContext
 
+    ; An older Agent may still own the SDK listener after a user moves or
+    ; removes its original checkout. Retire it before replacing the EXE.
+    IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 mouseAgentStopped
+    ExecWait '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent-stop'
+    Sleep 3500
+    mouseAgentStopped:
+
     !insertmacro wails.webview2runtime
 
     SetOutPath $INSTDIR
