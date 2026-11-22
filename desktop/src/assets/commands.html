@@ -1,7 +1,8 @@
 <!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>指令管理</title>
 <style>body{font:14px "Segoe UI",sans-serif;margin:0;color:#111827;background:#f6f7f9}main{padding:24px}h1{font-size:22px;margin:0 0 8px}p{color:#6b7280}button,input,select,textarea{font:inherit;padding:8px;border:1px solid #d1d5db;border-radius:6px;background:white}button{cursor:pointer}button.primary{background:#e85d75;color:white;border:0}table{width:100%;border-collapse:collapse;background:white;margin-top:16px}td,th{text-align:left;padding:12px;border-bottom:1px solid #e5e7eb;vertical-align:top}th{color:#6b7280;font-weight:500}td small{display:block;color:#6b7280}dialog{border:1px solid #ddd;border-radius:12px;width:min(480px,85vw)}label{display:block;margin:10px 0}label input:not([type=checkbox]),label select,label textarea{display:block;width:95%;margin-top:5px}#status{min-height:20px;color:#bc465e}button+button{margin-left:6px}</style>
-<main><h1>指令管理</h1><p>管理本机语音触发词和操作。修改后立即应用，无需重启。</p><input id="search" placeholder="搜索指令"><button id="add" class="primary">新增指令</button><p id="status" role="status"></p><table><thead><tr><th>指令及别名</th><th>操作</th><th>启用</th><th>管理</th></tr></thead><tbody id="rows"></tbody></table></main>
+<main><h1>指令管理</h1><p>管理本机语音触发词和操作。修改后立即应用，无需重启。</p><input id="search" placeholder="搜索指令"><button id="add" class="primary">新增指令</button><button id="debug">诊断日志</button><p id="status" role="status"></p><table><thead><tr><th>指令及别名</th><th>操作</th><th>启用</th><th>管理</th></tr></thead><tbody id="rows"></tbody></table></main>
 <dialog id="editor"><h2 id="heading">编辑指令</h2><label>触发文字<input id="name" maxlength="100"></label><label>语音样本（可选）<div><button id="record" type="button">开始录音</button><button id="preview" type="button">试听录音</button></div><small id="record-status">录制后自动转为文字，原声仅保存在本机</small></label><label>别名（每行一个）<textarea id="aliases" rows="3"></textarea></label><label>操作类型<select id="action"><option value="open-app">启动应用</option><option value="open-url">访问网址</option><option value="close-app">关闭窗口（测试时确认）</option></select></label><label id="app-label">目标应用<select id="app"><option value="wechat">微信</option><option value="calculator">计算器</option><option value="notepad">记事本</option><option value="browser">浏览器</option></select></label><label id="url-label" hidden>网址<input id="url" placeholder="https://"></label><label><input type="checkbox" id="enabled" checked>启用</label><p id="err" role="alert"></p><button id="save" class="primary">保存</button><button id="cancel">取消</button></dialog>
+<dialog id="debug-dialog" style="width:min(760px,92vw)"><h2>本机语音指令诊断日志</h2><p>记录按键、录音、识别、匹配与执行结果，仅保存在本机；不包含录音音频及普通口述原文。</p><textarea id="debug-content" readonly rows="15" style="width:96%;font:12px Consolas,monospace"></textarea><p><button id="debug-refresh">刷新</button><button id="debug-copy">复制日志</button><button id="debug-close">关闭</button></p></dialog>
 <script type="module">
 import {Call} from "/wails/runtime.js";
 const $=id=>document.getElementById(id),call=(name,...args)=>Call.ByName("main.App."+name,...args);
@@ -70,6 +71,18 @@ $("preview").addEventListener("click",async()=>{
  }catch(e){$("record-status").textContent=String(e)}
 });
 
+async function refreshDebugLog(){
+  try{$("debug-content").value=await call("GetMaohaoDebugTail")}
+  catch(e){$("debug-content").value="读取诊断日志失败："+String(e)}
+}
+$("debug").onclick=()=>{$("debug-dialog").showModal();refreshDebugLog()};
+$("debug-refresh").onclick=refreshDebugLog;
+$("debug-copy").onclick=async()=>{
+  $("debug-content").select();
+  try{await navigator.clipboard.writeText($("debug-content").value);status("诊断日志已复制")}
+  catch(e){status("请在日志框中全选复制："+String(e))}
+};
+$("debug-close").onclick=()=>$("debug-dialog").close();
 $("search").oninput=render;$("add").onclick=()=>edit(null);$("cancel").onclick=()=>{if(recorder?.state==="recording")recorder.stop();recordedWav="";$("editor").close()};$("action").onchange=syncEditor;
 $("save").onclick=async()=>{try{const c={id:editing??crypto.randomUUID(),name:$("name").value.trim(),aliases:$("aliases").value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean),action:$("action").value,target:$("action").value==="open-url"?$("url").value.trim():$("app").value,enabled:$("enabled").checked};await persist(editing?items.map(x=>x.id===editing?c:x):[...items,c]);if(recordedWav){await call("SaveMouseCommandRecording",c.id,recordedWav);status("指令与本地语音已保存")}recordedWav="";$("editor").close()}catch(e){$("err").textContent=String(e)}};
 try{items=(await call("ListMouseCommands"))??[];render()}catch(e){status(String(e))}

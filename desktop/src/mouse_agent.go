@@ -62,7 +62,9 @@ return secret,nil
 }
 func runMaohaoAgent()error{
 if runtime.GOOS!="windows"{return nil}
-ln,err:=net.Listen("tcp",maohaoAddr);if err!=nil{return err}
+maohaoDebug("agent.start","address",maohaoAddr)
+ln,err:=net.Listen("tcp",maohaoAddr);if err!=nil{maohaoDebug("agent.listen_failed","error",maohaoDebugErr(err));return err}
+maohaoDebug("agent.listening")
 defer ln.Close()
 secret,err:=createMaohaoSessionToken();if err!=nil{return err}
 // Session credentials are regenerated on daemon startup; they are not a
@@ -102,13 +104,15 @@ var hello struct {
 }
 if json.Unmarshal([]byte(line),&hello)!=nil||hello.Token!=secret{return}
 if hello.Action=="shutdown" {
+maohaoDebug("agent.shutdown_received")
   _,_=io.WriteString(conn,"ok\n")
   _=a.listener.Close()
   return
 }
 if hello.Action!="" {return}
 p:=&maohaoPeer{conn:conn}
-a.mu.Lock();a.peers[p]=struct{}{};a.mu.Unlock()
+a.mu.Lock();a.peers[p]=struct{}{};peers:=len(a.peers);a.mu.Unlock()
+maohaoDebug("agent.gui_connected","peers",peers)
 defer func(){a.mu.Lock();delete(a.peers,p);a.mu.Unlock()}()
 exePath,_:=os.Executable()
 status,_:=json.Marshal(map[string]string{"phase":"agent-connected","executable":exePath})
@@ -125,23 +129,32 @@ for _,p:=range peers {if err:=p.send(pkt);err!=nil{_=p.conn.Close()}}
 }
 func (a *maohaoAgent)wake(){
 a.mu.Lock()
-if time.Since(a.lastWake)<time.Second {a.mu.Unlock();return}
+if time.Since(a.lastWake)<time.Second {a.mu.Unlock();maohaoDebug("ai.wake_throttled");return}
 a.lastWake=time.Now();active:=len(a.peers)>0
 a.mu.Unlock()
+maohaoDebug("ai.wake_dispatch","gui_connected",active)
 a.broadcast("octop:maohao-wake",map[string]string{"source":"ai-key"})
 if active{return}
 exe,err:=os.Executable();if err!=nil{return}
 cmd:=exec.Command(exe);prepareMaohaoCommand(cmd)
-if cmd.Start()==nil{go func(){_=cmd.Wait()}()}
+if err:=cmd.Start();err==nil{
+ maohaoDebug("ai.launch_gui_started","pid",cmd.Process.Pid)
+ go func(){_=cmd.Wait()}()
+}else{maohaoDebug("ai.launch_gui_failed","error",maohaoDebugErr(err))}
 }
 func (a *maohaoAgent)rememberFocus(device string){
-a.mu.Lock();a.device=device;a.foreground=maohaoForegroundWindow();a.mu.Unlock()
+a.mu.Lock();a.device=device;a.foreground=maohaoForegroundWindow()
+hasFocus:=a.foreground!=0
+octopFocus:=hasFocus&&maohaoIsOctopForeground(a.foreground)
+a.mu.Unlock()
+maohaoDebug("audio.focus_captured","has_focus",hasFocus,"octop_foreground",octopFocus)
 }
 func (a *maohaoAgent)onAudio(device string,wav []byte){
 a.mu.Lock();foreground,wasDevice:=a.foreground,a.device
 active:=len(a.peers)>0
 a.device="";a.foreground=0;a.mu.Unlock()
-if wasDevice!=device{return}
+maohaoDebug("audio.received","wav_bytes",len(wav),"device_matches",wasDevice==device,"gui_connected",active,"has_focus",foreground!=0)
+if wasDevice!=device{maohaoDebug("audio.discarded","reason","missing_start_or_device_mismatch");return}
 _ = active
 // A single offline STT path is used for both system commands and Octop
 // conversation text, even if the Octop window is not open.
@@ -153,39 +166,80 @@ switch s {case "打开微信","请打开微信","帮我打开微信","请帮我�
 if s==""{return "empty"}
 return "dictate"
 }
-func (a *maohaoAgent)backgroundAction(wav []byte,window uintptr){
-var msg string
-var err error
-if os.Getenv("OCTOP_MAOHAO_LOCAL_STT_URL")!="" {
-  msg,err=maohaoLocalSTT(wav) // optional explicitly configured local endpoint
-} else {
-  msg,err=a.worker.transcribe(wav,a.broadcast)
+// Match explicit system commands before routing unmatched speech to chat.
+func maohaoSpeechRoute(items []MouseCommand,msg string,octopForeground bool)(string,MouseCommand){
+ if cmd,ok:=findMouseCommand(items,msg);ok{return "command",cmd}
+ if strings.TrimSpace(msg)==""{return "empty",MouseCommand{}}
+ if octopForeground{return "chat",MouseCommand{}}
+ return "dictate",MouseCommand{}
 }
-if err!=nil {
+func (a *maohaoAgent)backgroundAction(wav []byte,window uintptr){
+ maohaoDebug("asr.started","wav_bytes",len(wav),"has_focus",window!=0)
+ var msg string
+ var err error
+ source:="sensevoice"
+ if os.Getenv("OCTOP_MAOHAO_LOCAL_STT_URL")!=""{
+  source="local_http"
+  msg,err=maohaoLocalSTT(wav)
+ }else{
+  msg,err=a.worker.transcribe(wav,a.broadcast)
+ }
+ if err!=nil{
+  maohaoDebug("asr.failed","source",source,"error",maohaoDebugErr(err))
   a.broadcast("octop:maohao-status",map[string]string{"phase":"local-stt-unavailable"})
   mouseCommandNotice("error","语音识别未就绪或失败")
-  log.Printf("Maohao local ASR unavailable: %T",err)
   return
-}
-if window!=0&&maohaoIsOctopForeground(window) {
+ }
+ preview,count,hash:=maohaoDebugTranscript(msg)
+ maohaoDebug("asr.result","source",source,"runes",count,"hash12",hash,"command_preview",preview)
+ items,readErr:=readMouseCommands()
+ if readErr!=nil{
+  maohaoDebug("commands.read_failed","error",maohaoDebugErr(readErr))
+  mouseCommandNotice("error","指令集读取失败")
+  return
+ }
+ octopFront:=window!=0&&maohaoIsOctopForeground(window)
+ route,cmd:=maohaoSpeechRoute(items,msg,octopFront)
+ maohaoDebug("commands.route","route",route,"count",len(items),"octop_foreground",octopFront,"command_id",cmd.ID)
+ switch route{
+ case "command":
+  if cmd.Action=="close-app"{
+   maohaoDebug("commands.blocked","id",cmd.ID,"reason","close_requires_confirmation")
+   mouseCommandNotice("error","关闭操作请在指令管理中确认执行")
+   return
+  }
+  maohaoDebug("commands.execute_start","id",cmd.ID,"action",cmd.Action)
+  mouseCommandNotice("executing",cmd.Name)
+  if err:=executeMouseCommand(cmd);err!=nil{
+   maohaoDebug("commands.execute_failed","id",cmd.ID,"error",maohaoDebugErr(err))
+   mouseCommandNotice("error","指令执行失败")
+   return
+  }
+  maohaoDebug("commands.execute_ok","id",cmd.ID)
+  mouseCommandNotice("ready","")
+ case "chat":
+  maohaoDebug("dictation.sent_to_chat","runes",count)
   a.broadcast("octop:maohao-transcript",map[string]string{"text":msg})
   mouseCommandNotice("ready","")
-  return
+ case "empty":
+  maohaoDebug("asr.empty")
+  mouseCommandNotice("error","未识别到语音")
+ default:
+  if window==0||window!=maohaoForegroundWindow(){
+   maohaoDebug("dictation.discarded","reason","no_focus_or_focus_changed","has_focus",window!=0)
+   mouseCommandNotice("error","未识别到指令，输入焦点已变化")
+   return
+  }
+  if err:=maohaoTypeUnicode(msg);err!=nil{
+   maohaoDebug("dictation.insert_failed","error",maohaoDebugErr(err))
+   mouseCommandNotice("error","文字输入失败")
+   return
+  }
+  maohaoDebug("dictation.insert_ok","runes",count)
+  mouseCommandNotice("ready","")
+ }
 }
-items,readErr:=readMouseCommands()
-if readErr!=nil{mouseCommandNotice("error","指令集读取失败");return}
-if cmd,ok:=findMouseCommand(items,msg);ok {
- if cmd.Action=="close-app"{mouseCommandNotice("error","关闭操作请在指令管理中确认执行");return}
- mouseCommandNotice("executing",cmd.Name)
- if err:=executeMouseCommand(cmd);err!=nil{mouseCommandNotice("error","指令执行失败");return}
- mouseCommandNotice("ready","")
- return
-}
-if strings.TrimSpace(msg)==""{mouseCommandNotice("error","未识别到语音");return}
-if window==0||window!=maohaoForegroundWindow(){mouseCommandNotice("error","未识别到指令，输入焦点已变化");return}
-if err:=maohaoTypeUnicode(msg);err!=nil{mouseCommandNotice("error","文字输入失败");return}
-mouseCommandNotice("ready","")
-}
+
 func maohaoLocalSTT(wav []byte)(string,error){
 raw:=strings.TrimSpace(os.Getenv("OCTOP_MAOHAO_LOCAL_STT_URL"))
 if raw==""{return "",errors.New("local STT not configured")}

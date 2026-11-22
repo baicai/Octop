@@ -34,12 +34,21 @@ func normalizeMouseCommand(s string)string{
 }
 func readMouseCommands()([]MouseCommand,error){
  raw,err:=os.ReadFile(mouseCommandPath())
- if os.IsNotExist(err){return defaultMouseCommands(),nil}
+ if os.IsNotExist(err){
+  maohaoDebug("commands.defaults_used","count",len(defaultMouseCommands()))
+  return defaultMouseCommands(),nil
+}
  if err!=nil{return nil,err}
  var items []MouseCommand
- if err=json.Unmarshal(raw,&items);err!=nil{return nil,err}
- if err=validateMouseCommands(items);err!=nil{return nil,err}
- return items,nil
+ if err=json.Unmarshal(raw,&items);err!=nil{
+  maohaoDebug("commands.json_invalid","error",maohaoDebugErr(err))
+  return nil,err
+}
+ if err=validateMouseCommands(items);err!=nil{
+  maohaoDebug("commands.config_invalid","error",maohaoDebugErr(err))
+  return nil,err
+}
+return items,nil
 }
 func validateMouseCommands(items []MouseCommand)error{
  if len(items)>300{return errors.New("最多支持300条指令")}
@@ -85,15 +94,23 @@ func (a *App) SaveMouseCommands(items []MouseCommand)error{
  defer os.Remove(f.Name())
  if _,err=f.Write(raw);err!=nil{f.Close();return err}
  if err=f.Close();err!=nil{return err}
- if err:=replaceMouseCommandFile(f.Name(),mouseCommandPath());err!=nil{return err}
+ if err:=replaceMouseCommandFile(f.Name(),mouseCommandPath());err!=nil{
+ maohaoDebug("commands.save_failed","error",maohaoDebugErr(err))
+ return err
+}
+maohaoDebug("commands.saved","count",len(items))
 return pruneMouseRecordings(items)
 }
 func (a *App) TestMouseCommand(id string,confirmed bool)error{
  commandLock.Lock();items,err:=readMouseCommands();commandLock.Unlock()
  if err!=nil{return err}
  for _,c:=range items{if c.ID==id{
+ maohaoDebug("commands.test_requested","id",id,"action",c.Action)
  if c.Action=="close-app"&&!confirmed{return errors.New("请确认关闭窗口")}
- return executeMouseCommand(c)
+ err:=executeMouseCommand(c)
+ if err!=nil{maohaoDebug("commands.test_failed","id",id,"error",maohaoDebugErr(err))}
+ if err==nil{maohaoDebug("commands.test_ok","id",id)}
+ return err
  }}
  return errors.New("指令不存在")
 }

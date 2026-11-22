@@ -101,7 +101,11 @@ func ensureSenseVoiceModels(notify func(string,any)) (string,error){
  if err:=os.MkdirAll(root,0700);err!=nil{return "",err}
  for _,asset:=range senseVoiceAssets{
   target:=filepath.Join(root,asset.Name)
-  if modelHashMatches(target,asset){continue}
+  if modelHashMatches(target,asset){
+   maohaoDebug("models.file_ready","name",asset.Name)
+   continue
+  }
+  maohaoDebug("models.download_needed","name",asset.Name)
   mouseCommandNotice("model","正在下载离线语音模型")
   notify("octop:maohao-status",map[string]string{"phase":"model-downloading","resource":asset.Name})
   var first error
@@ -116,6 +120,7 @@ func ensureSenseVoiceModels(notify func(string,any)) (string,error){
     if i==0 {first=err}
   }
   if first!=nil || !modelHashMatches(target,asset){
+    maohaoDebug("models.download_failed","name",asset.Name,"error",maohaoDebugErr(first))
     return "",fmt.Errorf("offline speech model preparation failed for %s",asset.Name)
   }
  }
@@ -140,6 +145,7 @@ func (w *maohaoOfflineWorker) stop(){
  w.mu.Lock();defer w.mu.Unlock();w.reset()
 }
 func (w *maohaoOfflineWorker) start(root string)error{
+ maohaoDebug("worker.start","model_dir_exists",root!="")
  portable:=portableDir()
  py:=pythonExe(portable)
  script:=filepath.Join(portable,"sensevoice_worker.py")
@@ -153,7 +159,9 @@ func (w *maohaoOfflineWorker) start(root string)error{
  // worker. Repair only when a physical mouse recording needs local ASR:
  // leave the core version-comparison/backup logic unchanged.
  if !portableHasMaohaoOffline(portable) {
+  maohaoDebug("worker.repair_needed")
   if err:=repairMaohaoSpeechRuntime(portable);err!=nil {
+    maohaoDebug("worker.repair_failed","error",maohaoDebugErr(err))
     return fmt.Errorf("bundled speech runtime repair failed: %w",err)
   }
  }
@@ -169,7 +177,11 @@ func (w *maohaoOfflineWorker) start(root string)error{
  prepareMaohaoCommand(cmd)
  stdout,err:=cmd.StdoutPipe();if err!=nil{return err}
  stdin,err:=cmd.StdinPipe();if err!=nil{return err}
- if err=cmd.Start();err!=nil{return err}
+ if err=cmd.Start();err!=nil{
+   maohaoDebug("worker.spawn_failed","error",maohaoDebugErr(err))
+   return err
+ }
+ maohaoDebug("worker.spawned","pid",cmd.Process.Pid)
  lines:=make(chan string,2)
  go func(){
    scanner:=bufio.NewScanner(stdout)
@@ -181,11 +193,19 @@ func (w *maohaoOfflineWorker) start(root string)error{
  w.cmd,w.input,w.lines=cmd,stdin,lines
  select{
  case line,ok:=<-lines:
-  if !ok{return errors.New("SenseVoice worker exited during startup")}
+  if !ok{
+   maohaoDebug("worker.exited_before_ready")
+   return errors.New("SenseVoice worker exited during startup")
+  }
   var ready struct{Ready bool `json:"ready"`}
-  if json.Unmarshal([]byte(line),&ready)!=nil||!ready.Ready{return errors.New("SenseVoice worker not ready")}
+  if json.Unmarshal([]byte(line),&ready)!=nil||!ready.Ready{
+   maohaoDebug("worker.not_ready","response_bytes",len(line))
+   return errors.New("SenseVoice worker not ready")
+  }
+  maohaoDebug("worker.ready")
   return nil
  case <-time.After(45*time.Second):
+  maohaoDebug("worker.start_timeout")
   return errors.New("SenseVoice model loading timed out")
  }
 }
@@ -203,20 +223,31 @@ func (w *maohaoOfflineWorker) transcribe(wav []byte,notify func(string,any))(str
   notify("octop:maohao-status",map[string]string{"phase":"model-loading"})
   if err:=w.start(senseVoiceModelDir());err!=nil{w.reset();return "",err}
  }
+ maohaoDebug("worker.transcribe_started","wav_bytes",len(wav))
  if len(wav)>16000*2*45+44{return "",errors.New("PCM recording too large")}
  payload,err:=json.Marshal(map[string]string{"wavBase64":base64.StdEncoding.EncodeToString(wav)})
  if err!=nil{return "",err}
- if _,err=w.input.Write(append(payload,'\n'));err!=nil{w.reset();return "",err}
+ if _,err=w.input.Write(append(payload,'\n'));err!=nil{
+  maohaoDebug("worker.write_failed","error",maohaoDebugErr(err))
+  w.reset();return "",err
+ }
  select{
  case line,ok:=<-w.lines:
-  if !ok{w.reset();return "",errors.New("SenseVoice worker exited")}
+  if !ok{
+   maohaoDebug("worker.exited_during_transcribe")
+   w.reset();return "",errors.New("SenseVoice worker exited")
+  }
   var result struct{
    Text string `json:"text"`
    Error string `json:"error"`
   }
-  if json.Unmarshal([]byte(line),&result)!=nil||result.Error!=""{return "",errors.New("SenseVoice recognition failed")}
+  if json.Unmarshal([]byte(line),&result)!=nil||result.Error!=""{
+   maohaoDebug("worker.response_error","has_error",result.Error!="","response_bytes",len(line))
+   return "",errors.New("SenseVoice recognition failed")
+  }
   return strings.TrimSpace(result.Text),nil
  case <-time.After(90*time.Second):
+  maohaoDebug("worker.transcription_timeout")
   w.reset()
   return "",errors.New("SenseVoice transcription deadline exceeded")
  }
