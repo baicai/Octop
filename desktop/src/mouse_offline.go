@@ -20,6 +20,7 @@ import (
  "strings"
  "sync"
  "time"
+ "unicode/utf8"
 )
 
 type senseVoiceAsset struct {
@@ -169,10 +170,7 @@ func (w *maohaoOfflineWorker) start(root string)error{
  if _,err:=os.Stat(script);err!=nil{return fmt.Errorf("SenseVoice worker not packaged")}
  cmd:=exec.Command(py,script,root)
  cmd.Dir=portable
- cmd.Env=overlayEnv(os.Environ(),map[string]string{
-   "PYTHONPATH":filepath.Join(portable,"packages"),
-   "PYTHONNOUSERSITE":"1",
- })
+ cmd.Env=senseVoiceWorkerEnv(portable)
  cmd.Stderr=io.Discard // do not persist microphone or device diagnostics
  prepareMaohaoCommand(cmd)
  stdout,err:=cmd.StdoutPipe();if err!=nil{return err}
@@ -237,18 +235,42 @@ func (w *maohaoOfflineWorker) transcribe(wav []byte,notify func(string,any))(str
    maohaoDebug("worker.exited_during_transcribe")
    w.reset();return "",errors.New("SenseVoice worker exited")
   }
-  var result struct{
-   Text string `json:"text"`
-   Error string `json:"error"`
+  text,decodeErr:=decodeSenseVoiceResponse(line)
+  if decodeErr!=nil{
+   maohaoDebug("worker.response_error","response_bytes",len(line),"error",maohaoDebugErr(decodeErr))
+   return "",decodeErr
   }
-  if json.Unmarshal([]byte(line),&result)!=nil||result.Error!=""{
-   maohaoDebug("worker.response_error","has_error",result.Error!="","response_bytes",len(line))
-   return "",errors.New("SenseVoice recognition failed")
-  }
-  return strings.TrimSpace(result.Text),nil
+  return text,nil
  case <-time.After(90*time.Second):
   maohaoDebug("worker.transcription_timeout")
   w.reset()
   return "",errors.New("SenseVoice transcription deadline exceeded")
  }
+}
+
+
+// An older worker must use UTF-8 even when Windows is configured for CP936.
+func senseVoiceWorkerEnv(portable string)[]string{
+ return overlayEnv(os.Environ(),map[string]string{
+  "PYTHONPATH":filepath.Join(portable,"packages"),
+  "PYTHONNOUSERSITE":"1",
+  "PYTHONIOENCODING":"utf-8",
+  "PYTHONUTF8":"1",
+ })
+}
+
+// Go's JSON parser replaces invalid UTF-8 with U+FFFD unless rejected first.
+func decodeSenseVoiceResponse(line string)(string,error){
+ if !utf8.ValidString(line){return "",errors.New("SenseVoice response is not UTF-8")}
+ var result struct{
+  Text string `json:"text"`
+  Error string `json:"error"`
+ }
+ if err:=json.Unmarshal([]byte(line),&result);err!=nil||result.Error!=""{
+  return "",errors.New("SenseVoice recognition failed")
+ }
+ if strings.ContainsRune(result.Text,utf8.RuneError){
+  return "",errors.New("SenseVoice response contains corrupted Unicode")
+ }
+ return strings.TrimSpace(result.Text),nil
 }

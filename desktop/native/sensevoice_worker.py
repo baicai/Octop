@@ -67,7 +67,8 @@ def main() -> None:
             stream.accept_waveform(16000, samples)
             recognizer.decode_stream(stream)
             result = str(stream.result.text).strip()
-            print(json.dumps({"text": result}, ensure_ascii=False), flush=True)
+            # ASCII-only wire JSON stays intact across legacy Windows code pages.
+            print(json.dumps({"text": result}, ensure_ascii=True), flush=True)
         except Exception:
             # Do not reflect paths, transcripts, machine identifiers, or
             # exceptions to the caller. Log failure status without audio.
