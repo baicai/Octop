@@ -556,6 +556,7 @@
         </div>
         <div class="actions">
           <button class="primary" id="show-main">显示 Octop</button>
+          <button class="ghost" id="mouse-commands">指令管理</button>
           <button class="ghost" id="quit">退出</button>
         </div>
         <p class="status hidden" id="settings-status"></p>
@@ -739,6 +740,8 @@
         document.getElementById("tray").checked = s.minimizeToTray !== false;
         document.getElementById("sleep").checked = !!s.preventSleep;
 
+        document.getElementById("mouse-commands").hidden = document.documentElement.dataset.chrome === "mac";
+        document.getElementById("mouse-commands").addEventListener("click",()=>call("ShowMouseCommands"));
         for (const id of ["locale", "autostart", "tray", "sleep"]) {
           document.getElementById(id).addEventListener("change", persist);
         }

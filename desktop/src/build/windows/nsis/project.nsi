@@ -1,4 +1,4 @@
-Unicode true
+﻿Unicode true
 
 # Octop desktop NSIS installer.
 # Built by `wails3 task package` on a Windows runner:
@@ -7,6 +7,8 @@ Unicode true
 
 # Written by stamp_version.py nsis-defines (pep440 display + X.X.X.X file version).
 !include /nonfatal "version_defines.nsh"
+# A separate installer identity keeps the standard Octop installation intact.
+!define INFO_PRODUCTNAME "Octop Demo"
 !include "wails_tools.nsh"
 
 SetCompressor /SOLID lzma
@@ -28,6 +30,29 @@ VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 ManifestDPIAware true
 
 !include "MUI.nsh"
+!include "nsDialogs.nsh"
+!include "LogicLib.nsh"
+!include "install_location.nsh"
+Var UnDeleteOfflineModels
+Var UnModelsCheckbox
+Function un.OfflineModelsPage
+    StrCpy $UnDeleteOfflineModels 1
+    nsDialogs::Create 1018
+    Pop $0
+    ${If} $0 == error
+        Abort
+    ${EndIf}
+    ${NSD_CreateLabel} 0 4u 100% 28u "卸载 Octop Demo 时可删除本地 SenseVoice 离线语音模型，其他数据保留。"
+    Pop $0
+    ${NSD_CreateCheckbox} 0 42u 100% 18u "删除本地离线语音模型（默认）"
+    Pop $UnModelsCheckbox
+    ${NSD_Check} $UnModelsCheckbox
+    nsDialogs::Show
+FunctionEnd
+Function un.OfflineModelsPageLeave
+    ${NSD_GetState} $UnModelsCheckbox $UnDeleteOfflineModels
+FunctionEnd
+
 
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
@@ -36,9 +61,13 @@ ManifestDPIAware true
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
 !insertmacro MUI_PAGE_WELCOME
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipDirectoryForOctopUpgrade
 !insertmacro MUI_PAGE_DIRECTORY
+!undef MUI_PAGE_CUSTOMFUNCTION_PRE
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
+
+UninstPage custom un.OfflineModelsPage un.OfflineModelsPageLeave
 
 !insertmacro MUI_UNPAGE_INSTFILES
 
@@ -63,16 +92,31 @@ Function .onInit
     !insertmacro MUI_LANGDLL_DISPLAY
     skipLang:
     !insertmacro wails.checkArchitecture
+    Call DetectExistingOctopDemo
 FunctionEnd
 
 Section
     !insertmacro wails.setShellContext
+
+    ; An older Agent may still own the SDK listener after a user moves or
+    ; removes its original checkout. Retire it before replacing the EXE.
+    IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 mouseAgentStopped
+    ExecWait '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent-stop'
+    Sleep 3500
+    mouseAgentStopped:
 
     !insertmacro wails.webview2runtime
 
     SetOutPath $INSTDIR
 
     !insertmacro wails.files
+
+    ; Windows evaluation only: packaged vendor DLL and isolated SDK helper.
+    !if /FileExists "umouse-sdk\\umouse-bridge.exe"
+        SetOutPath "$INSTDIR\\umouse-sdk"
+        File /r "umouse-sdk\\*"
+        SetOutPath "$INSTDIR"
+    !endif
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortcut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
@@ -81,9 +125,37 @@ Section
     !insertmacro wails.associateCustomProtocols
 
     !insertmacro wails.writeUninstaller
+    SetRegView 64
+    !if "${WAILS_INSTALL_SCOPE}" == "user"
+        WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+    !else
+        WriteRegStr HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+    !endif
+
+    ; Per-user background SDK listener starts without opening the main GUI.
+    ; Portable Python + verified model files are prepared on first voice use.
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "OctopDemoMouseAgent" '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent'
+    Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent'
 SectionEnd
 
 Section "uninstall"
+    ${If} ${Silent}
+        StrCpy $UnDeleteOfflineModels 1
+    ${EndIf}
+    ${If} $UnDeleteOfflineModels != 0
+        InitPluginsDir
+        File "/oname=$PLUGINSDIR\remove-offline-models.ps1" "remove-offline-models.ps1"
+        ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\remove-offline-models.ps1"' $0
+        ${If} $0 != 0
+            DetailPrint "SenseVoice model removal failed or skipped; other data preserved."
+        ${EndIf}
+    ${EndIf}
+
+    ; Stop only the authenticated Octop Demo agent, not other Octop installations.
+    IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 skipMouseStop
+    ExecWait '"$INSTDIR\${PRODUCT_EXECUTABLE}" --maohao-agent-stop'
+    skipMouseStop:
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "OctopDemoMouseAgent"
     !insertmacro wails.setShellContext
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}"

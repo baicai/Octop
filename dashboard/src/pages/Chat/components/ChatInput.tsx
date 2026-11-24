@@ -30,6 +30,8 @@ import ChatInputPreviewBar from "./ChatInputPreviewBar";
 import ChatInputActionsRow from "./ChatInputActionsRow";
 import ChatQueuedMessages from "./ChatQueuedMessages";
 import { useVoiceInput } from "../../../hooks/useVoiceInput";
+import { voiceApi } from "../../../api/modules/voice";
+import { speechLocaleFromUi } from "../../../utils/localePrefs";
 import { useChatAttachments } from "../hooks/useChatAttachments";
 import { onSteerRestore } from "../hooks/chatStore";
 import { useSlashMentionInput } from "../hooks/useSlashMentionInput";
@@ -272,6 +274,100 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       onInterim: applyVoiceText,
       onText: applyVoiceText,
     });
+    // Audio is delivered by the native Wails shell, not by the browser mic.
+    // Only a physical mouse hold generates this event in the SDK bridge.
+    // Visible feedback for physical mouse capture, independent of the
+    // ordinary browser microphone button and the Octop chat thread.
+    useEffect(() => {
+      const onMouseStatus = (event: Event) => {
+        const phase = (event as CustomEvent<{ phase?: string }>).detail?.phase;
+        const key = "maohao-physical-recording";
+        if (phase === "recording") {
+          antMessage.open({ key, type: "loading", duration: 0,
+            content: "贸号鼠标正在收音，松开按键后识别" });
+        } else if (phase === "model-downloading") {
+          antMessage.open({ key, type: "loading", duration: 0,
+            content: "首次准备离线语音模型中，请保持网络连接…" });
+        } else if (phase === "model-loading") {
+          antMessage.open({ key, type: "loading", duration: 0,
+            content: "正在加载本地 SenseVoice 语音模型…" });
+        } else if (phase === "transcribing") {
+          antMessage.open({ key, type: "loading", duration: 0,
+            content: "贸号鼠标语音识别中…" });
+        } else if (phase === "ready" || phase === "disconnected" ||
+                   phase === "device-disconnected") {
+          antMessage.destroy(key);
+        } else if (phase === "local-stt-unavailable") {
+          antMessage.destroy(key);
+          antMessage.warning("后台语音识别未就绪，需配置本地识别服务。");
+        }
+      };
+      window.addEventListener("octop:maohao-status", onMouseStatus);
+      return () => {
+        window.removeEventListener("octop:maohao-status", onMouseStatus);
+        antMessage.destroy("maohao-physical-recording");
+      };
+    }, [antMessage]);
+    // Local on-device transcript: no authenticated cloud STT account is needed.
+    // This event is delivered by the resident hardware agent, not web content.
+    useEffect(() => {
+      const onMaohaoTranscript = (event: Event) => {
+        const spoken = (event as CustomEvent<{ text?: string }>).detail?.text?.trim() ?? "";
+        if (!spoken) {
+          antMessage.info("未识别到有效语音，请重试。");
+          return;
+        }
+        antMessage.destroy("maohao-physical-recording");
+        if (disabled) {
+          antMessage.warning("当前 Agent 暂时无法接收消息。");
+        } else if (isStreaming || holdSend) {
+          if (onQueue?.({ text: spoken }) !== "ok") {
+            antMessage.warning("当前对话繁忙，无法排队发送语音消息。");
+          }
+        } else {
+          onSend(spoken);
+        }
+      };
+      window.addEventListener("octop:maohao-transcript", onMaohaoTranscript);
+      return () => window.removeEventListener("octop:maohao-transcript", onMaohaoTranscript);
+    }, [antMessage, disabled, holdSend, isStreaming, onQueue, onSend]);
+    const maohaoTranscribingRef = useRef(false);
+    useEffect(() => {
+      const onMaohaoAudio = async (event: Event) => {
+        const data = (event as CustomEvent<{ wavBase64?: string }>).detail;
+        if (!data?.wavBase64 || data.wavBase64.length > 4_500_000 ||
+            maohaoTranscribingRef.current) return;
+        maohaoTranscribingRef.current = true;
+        try {
+          const raw = atob(data.wavBase64);
+          const wav = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i += 1) wav[i] = raw.charCodeAt(i);
+          const response = await voiceApi.transcribe(
+            new Blob([wav.buffer as ArrayBuffer], { type: "audio/wav" }),
+            speechLocaleFromUi(i18n.language),
+          );
+          const transcript = response.text?.trim() ?? "";
+          if (!transcript) {
+            antMessage.warning("未识别到语音，请重新按住鼠标语音键。");
+          } else if (disabled) {
+            antMessage.warning("当前 Agent 尚未就绪。");
+          } else if (isStreaming || holdSend) {
+            if (onQueue?.({ text: transcript }) !== "ok") {
+              antMessage.warning("当前对话繁忙，请稍后重试。");
+            }
+          } else {
+            onSend(transcript);
+          }
+        } catch {
+          antMessage.error("贸号鼠标语音识别失败，请先配置可用的 STT 服务。");
+        } finally {
+          maohaoTranscribingRef.current = false;
+        }
+      };
+      window.addEventListener("octop:maohao-audio", onMaohaoAudio);
+      return () => window.removeEventListener("octop:maohao-audio", onMaohaoAudio);
+    }, [antMessage, disabled, holdSend, i18n.language, isStreaming, onQueue, onSend]);
+
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const {
       attachments,
